@@ -159,7 +159,7 @@ static void SCR_DrawChar( int x, int y, float size, int ch ) {
 */
 void SCR_DrawSmallChar( int x, int y, int ch ) {
 	glyphInfo_t *glyph;
-	float        scale, yadj, w, h;
+	float        w, h;
 	int          row, col;
 	float        frow, fcol, size;
 
@@ -172,14 +172,28 @@ void SCR_DrawSmallChar( int x, int y, int ch ) {
 		return;
 	}
 
-	/* Use the CoD1 font system when available */
+	/* Use the CoD1 font system when available.
+	   CoD1 glyphScale is NOT Q3's 1/pointSize.  After the tr_font.c fix,
+	   glyph->top = pixels above baseline.  The 16pt font has a max
+	   ascender of 12 px and max descender of ~4 px → total line = 16 px.
+	   Scale uniformly so the line fits g_smallchar_height, then offset
+	   each glyph so all baselines land at the same row. */
 	glyph = &cls.consoleFont.glyphs[ch];
 	if ( cls.consoleFont.glyphScale > 0 && glyph->glyph && glyph->imageHeight > 0 ) {
-		scale = cls.consoleFont.glyphScale * g_smallchar_height;
-		yadj  = scale * glyph->top;
-		w     = glyph->imageWidth  * scale;
-		h     = glyph->imageHeight * scale;
-		re.DrawStretchPic( x, y - (int)yadj, w, h,
+#define COD_FONT_ASCENDER  12   /* max glyph->top for 16pt font  */
+#define COD_FONT_LINE_H    16   /* ascender(12) + descender(4)   */
+		/* Scale height so the line fits the cell. */
+		float scale_h = (float)g_smallchar_height / COD_FONT_LINE_H;
+		/* Cap rendered width to the cell — wide glyphs (m, w) are squished
+		   horizontally but keep their natural height, so they stay readable. */
+		w = glyph->imageWidth  * scale_h;
+		h = glyph->imageHeight * scale_h;
+		if ( w > g_smallchar_width )
+			w = g_smallchar_width;
+		/* Baseline alignment: shift each glyph down by the difference
+		   between the max ascender and this glyph's ascender. */
+		int y_off = (int)( (COD_FONT_ASCENDER - glyph->top) * scale_h );
+		re.DrawStretchPic( x, y + y_off, w, h,
 		                   glyph->s, glyph->t, glyph->s2, glyph->t2,
 		                   glyph->glyph );
 		return;

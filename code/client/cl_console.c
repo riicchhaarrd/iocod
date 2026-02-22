@@ -292,6 +292,25 @@ void Con_CheckResize (void)
 		g_smallchar_height = (int)((float)SMALLCHAR_HEIGHT * con_scale->value);
 	}
 
+	/* When using the CoD1 font, derive g_smallchar_width from the average
+	   xSkip across all printable glyphs so spacing matches the font. */
+	if ( cls.consoleFont.glyphScale > 0 ) {
+		float scale = (float)g_smallchar_height / 16.0f;
+		float total = 0.0f;
+		int   count = 0, c, fw;
+		for ( c = 33; c < 127; c++ ) { /* skip space, non-printable */
+			if ( cls.consoleFont.glyphs[c].xSkip > 0 ) {
+				total += cls.consoleFont.glyphs[c].xSkip;
+				count++;
+			}
+		}
+		if ( count > 0 ) {
+			fw = (int)( (total / count) * scale + 0.5f );
+			if ( fw > 0 )
+				g_smallchar_width = fw;
+		}
+	}
+
 	width = (cls.glconfig.vidWidth / g_smallchar_width) - 2;
 
 	if (width == con.linewidth)
