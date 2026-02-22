@@ -1172,8 +1172,10 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 				ParseWaveForm( text, &stage->rgbWave );
 				stage->rgbGen = CGEN_WAVEFORM;
 			}
-			else if ( !Q_stricmp( token, "const" ) )
+			else if ( !Q_stricmp( token, "const" ) || !Q_stricmp( token, "constant" )
+				|| !Q_stricmp( token, "constLighting" ) )
 			{
+				// CoD1: constLighting and constant are aliases for const
 				vec3_t	color;
 
 				VectorClear( color );
@@ -1254,8 +1256,9 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 				ParseWaveForm( text, &stage->alphaWave );
 				stage->alphaGen = AGEN_WAVEFORM;
 			}
-			else if ( !Q_stricmp( token, "const" ) )
+			else if ( !Q_stricmp( token, "const" ) || !Q_stricmp( token, "constLighting" ) )
 			{
+				// CoD1: constLighting is an alias for const
 				token = COM_ParseExt( text, qfalse );
 				stage->constantColor[3] = 255 * atof( token );
 				stage->alphaGen = AGEN_CONST;
