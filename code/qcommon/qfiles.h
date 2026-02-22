@@ -512,11 +512,11 @@ typedef struct {
 #define COD1_LUMP_TRIANGLESOUPS 6
 #define COD1_LUMP_VERTICES      7
 #define COD1_LUMP_TRIANGLES     8
-#define COD1_LUMP_LEAFSURFACES  13
+#define COD1_LUMP_LEAFSURFACES  13  /* unused in V59 (cells-based rendering); small/empty */
 #define COD1_LUMP_BSPNODES      20
 #define COD1_LUMP_BSPLEAFS      21
 #define COD1_LUMP_LEAFBRUSHES   22
-#define COD1_LUMP_VISIBILITY    26
+#define COD1_LUMP_VISIBILITY    28  /* was wrong (26 = collision tris); 28 = real vis data */
 #define COD1_LUMP_MODELS        27
 #define COD1_LUMP_ENTITIES      29
 
@@ -555,17 +555,17 @@ typedef struct {
     byte    color[4];
 } cod1_vertex_t;
 
-/* CoD1 BSP leaf - 36 bytes (vs Q3's 48 bytes) */
+/* CoD1 BSP leaf - 36 bytes, same layout as CoD2/V4 dleaf_t */
 typedef struct {
-    int cluster;          /* -1 = solid */
+    int cluster;           /* -1 = solid */
     int area;
-    int unk1;             /* always 0 */
-    int unk2;             /* always 0 */
-    int firstLeafSurface; /* index into leaf-surface index array (lump 13) */
-    int numLeafSurfaces;
-    int firstLeafBrush;   /* -1 or 0/1; brush system TBD */
+    int firstLeafSurface;  /* index into leaf-surface index array */
+    int numLeafSurfaces;   /* 0 in V59; rendering uses cells, not BSP leaves */
+    int firstLeafBrush;    /* index into leaf-brush index array (lump 22) */
     int numLeafBrushes;
-    int cell;             /* portal cell index */
+    int cellNum;           /* portal cell index */
+    int firstLightIndex;
+    int numLights;
 } cod1_dleaf_t;
 
 typedef struct {
