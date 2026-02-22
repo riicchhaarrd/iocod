@@ -616,11 +616,6 @@ void CMod_LoadBrushSidesCod1( lump_t *l ) {
         raw0 = LittleLong(in[0]);
 		shaderNum = LittleLong(in[1]);
 
-		if ( i < 10 ) {
-            // Debug print
-            // Com_Printf("Side %d: raw0 %u (0x%X) shader %d\n", i, raw0, raw0, shaderNum);
-		}
-
         if ( raw0 < (unsigned)cm.numPlanes ) {
             out->plane = cm.planes + raw0;
         } else {
@@ -668,10 +663,6 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
         firstSide = accumulatedFirstSide;
         accumulatedFirstSide += numSides;
 
-		if ( i < 10 ) {
-			Com_Printf("Brush %d: num %d shader %d first %d\n", i, numSides, shaderNum, firstSide);
-		}
-
 		if ( firstSide + numSides > cm.numBrushSides ) {
             // Clip numSides to avoid overrun
             if ( firstSide < cm.numBrushSides ) {
@@ -679,7 +670,6 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
             } else {
                 numSides = 0;
             }
-            // Com_Printf("CMod_LoadBrushesCod1: brush %d sides overrun\n", i);
 		}
 		out->sides = cm.brushsides + firstSide;
 		out->numsides = numSides;

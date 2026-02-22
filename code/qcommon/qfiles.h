@@ -570,9 +570,9 @@ typedef struct {
 
 typedef struct {
 	float		mins[3], maxs[3];
+    int         firstTriangle, numTriangles;
 	int			firstSurface, numSurfaces;
 	int			firstBrush, numBrushes;
-    int         unk1, unk2; /* CoD1 extra fields */
 } cod1_dmodel_t;
 
 
