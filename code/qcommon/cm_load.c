@@ -597,7 +597,8 @@ void CMod_LoadBrushSidesCod1( lump_t *l ) {
 	int			*in; // Read as ints
 	cbrushside_t *out;
 	int			i, count;
-	int			planeNum, shaderNum;
+	int			shaderNum;
+    unsigned    raw0;
 
 	in = (void *)(cmod_base + l->fileofs);
 	if (l->filelen % 8)
@@ -612,21 +613,22 @@ void CMod_LoadBrushSidesCod1( lump_t *l ) {
 	Com_Printf("Loading BrushSides Cod1 (%d sides)...\n", count);
 
 	for ( i=0 ; i<count ; i++, in+=2, out++ ) {
-		planeNum = LittleLong(in[0]);
+        raw0 = LittleLong(in[0]);
 		shaderNum = LittleLong(in[1]);
 
-		if ( i < 5 ) {
-			Com_Printf("Side %d: plane %d shader %d\n", i, planeNum, shaderNum);
+		if ( i < 10 ) {
+            // Debug print
+            // Com_Printf("Side %d: raw0 %u (0x%X) shader %d\n", i, raw0, raw0, shaderNum);
 		}
 
-        if ( planeNum < 0 || planeNum >= cm.numPlanes ) {
-            // Com_Printf("Bad planeNum: %d\n", planeNum);
-            planeNum = 0;
+        if ( raw0 < (unsigned)cm.numPlanes ) {
+            out->plane = cm.planes + raw0;
+        } else {
+            // FIXME: Handle explicit plane definition or other types
+            out->plane = cm.planes + 0;
         }
-		out->plane = cm.planes + planeNum;
         
         if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
-            // Com_Printf("Bad shaderNum: %d\n", shaderNum);
             shaderNum = 0;
         }
 		out->shaderNum = shaderNum;
@@ -644,29 +646,40 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
 	cbrush_t	*out;
 	int			i, count;
 	int			shaderNum, numSides, firstSide;
+    int         accumulatedFirstSide = 0;
 
 	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % 12)
+	if (l->filelen % 4)
 		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
-	count = l->filelen / 12;
+	count = l->filelen / 4;
 
 	cm.brushes = Hunk_Alloc( ( BOX_BRUSHES + count ) * sizeof( *cm.brushes ), h_high );
 	cm.numBrushes = count;
 
 	out = cm.brushes;
 
-	for ( i=0 ; i<count ; i++, in+=3, out++ ) {
+	for ( i=0 ; i<count ; i++, in++, out++ ) {
 		int raw0 = LittleLong(in[0]);
-		int raw1 = LittleLong(in[1]);
-		int raw2 = LittleLong(in[2]);
 
 		numSides = raw0 & 0xFFFF;
 		shaderNum = (raw0 >> 16) & 0xFFFF;
-		firstSide = raw1; // Assuming offset 4 is firstSide
+        
+        // Implicit firstSide
+        firstSide = accumulatedFirstSide;
+        accumulatedFirstSide += numSides;
 
-		if ( firstSide < 0 || firstSide >= cm.numBrushSides ) {
-			// Com_Printf("CMod_LoadBrushesCod1: bad firstSide: %d\n", firstSide);
-			firstSide = 0;
+		if ( i < 10 ) {
+			Com_Printf("Brush %d: num %d shader %d first %d\n", i, numSides, shaderNum, firstSide);
+		}
+
+		if ( firstSide + numSides > cm.numBrushSides ) {
+            // Clip numSides to avoid overrun
+            if ( firstSide < cm.numBrushSides ) {
+                numSides = cm.numBrushSides - firstSide;
+            } else {
+                numSides = 0;
+            }
+            // Com_Printf("CMod_LoadBrushesCod1: brush %d sides overrun\n", i);
 		}
 		out->sides = cm.brushsides + firstSide;
 		out->numsides = numSides;
@@ -680,7 +693,6 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
 		if ( out->numsides >= 6 ) {
 			CM_BoundBrush( out );
 		} else {
-            // Zero bounds or handled elsewhere?
             VectorClear(out->bounds[0]);
             VectorClear(out->bounds[1]);
         }
