@@ -257,23 +257,19 @@ static void R_LoadCod1Surfaces( const byte *base ) {
    Marksurfaces – GL2 stores int indices (not msurface_t* pointers)
    ------------------------------------------------------------------------- */
 static void R_LoadCod1Marksurfaces( const byte *base ) {
-	lump_t      l = R_GetCod1Lump( base, COD1_LUMP_LEAFSURFACES );
-	const int  *in;
 	int        *out;
-	int         i, count, idx;
+	int         i, count;
 
-	in    = (const int *)( base + l.fileofs );
-	count = l.filelen / sizeof( int );
-
+	/* CoD1 leaves have cell indices, invalid in Q3.
+	   Fix: generate a flat list 0..numsurfaces-1 and make all leaves visible. */
+	count = s_worldData.numsurfaces;
 	out = ri.Hunk_Alloc( count * sizeof( *out ), h_low );
+
 	s_worldData.marksurfaces    = out;
 	s_worldData.nummarksurfaces = count;
 
 	for ( i = 0; i < count; i++ ) {
-		idx = LittleLong( in[i] );
-		if ( idx < 0 || idx >= s_worldData.numsurfaces )
-			ri.Error( ERR_DROP, "R_LoadCod1Marksurfaces: bad surface index %d", idx );
-		out[i] = idx;
+		out[i] = i;
 	}
 }
 
@@ -334,9 +330,9 @@ static void R_LoadCod1NodesAndLeafs( const byte *base ) {
 		if ( out->cluster >= s_worldData.numClusters )
 			s_worldData.numClusters = out->cluster + 1;
 
-		/* GL2: firstmarksurface/nummarksurfaces are integer indices */
-		out->firstmarksurface = LittleLong( leaf_in->firstLeafSurface );
-		out->nummarksurfaces  = LittleLong( leaf_in->numLeafSurfaces );
+		/* GL2: make all surfaces visible from every leaf to avoid CoD1 index issues */
+		out->firstmarksurface = 0;
+		out->nummarksurfaces  = s_worldData.numsurfaces;
 	}
 
 	R_SetParent( s_worldData.nodes, NULL );
