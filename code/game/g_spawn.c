@@ -271,6 +271,18 @@ spawn_t	spawns[] = {
 	{"trigger_lookat", SP_info_null},
 	{"misc_mg42", SP_misc_model},
 
+	{"info_grenade_hint", SP_info_null},
+	{"func_cullgroup", SP_info_null},
+	{"info_notnull_big", SP_info_notnull},
+	{"corona", SP_info_null},
+	{"misc_turret", SP_misc_model},
+	{"func_door_rotating", SP_func_door},
+	{"props_skyportal", SP_info_null},
+	{"info_vehicle_node", SP_path_corner},
+	{"info_vehicle_node_rotate", SP_path_corner},
+	{"script_vehicle", SP_misc_model},
+	{"misc_gamemodel", SP_misc_model},
+
 	{NULL, 0}
 };
 
