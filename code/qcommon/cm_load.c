@@ -643,7 +643,7 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
 	int			*in;
 	cbrush_t	*out;
 	int			i, count;
-	int			shaderNum;
+	int			shaderNum, numSides, firstSide;
 
 	in = (void *)(cmod_base + l->fileofs);
 	if (l->filelen % 12)
@@ -660,22 +660,30 @@ void CMod_LoadBrushesCod1( lump_t *l ) {
 		int raw1 = LittleLong(in[1]);
 		int raw2 = LittleLong(in[2]);
 
-		if ( raw0 < 0 || raw0 >= cm.numBrushSides ) {
-			Com_Printf("CMod_LoadBrushesCod1: bad firstSide: %d\n", raw0);
-			raw0 = 0;
-		}
-		out->sides = cm.brushsides + raw0;
-		out->numsides = raw1;
+		numSides = raw0 & 0xFFFF;
+		shaderNum = (raw0 >> 16) & 0xFFFF;
+		firstSide = raw1; // Assuming offset 4 is firstSide
 
-		shaderNum = raw2;
+		if ( firstSide < 0 || firstSide >= cm.numBrushSides ) {
+			// Com_Printf("CMod_LoadBrushesCod1: bad firstSide: %d\n", firstSide);
+			firstSide = 0;
+		}
+		out->sides = cm.brushsides + firstSide;
+		out->numsides = numSides;
+
 		if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
-            // Clamp or ignore
             shaderNum = 0;
 		}
 		out->contents = cm.shaders[shaderNum].contentFlags;
 		out->shaderNum = shaderNum;
 
-		// CM_BoundBrush( out );
+		if ( out->numsides >= 6 ) {
+			CM_BoundBrush( out );
+		} else {
+            // Zero bounds or handled elsewhere?
+            VectorClear(out->bounds[0]);
+            VectorClear(out->bounds[1]);
+        }
 	}
 }
 
