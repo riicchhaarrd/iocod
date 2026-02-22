@@ -173,7 +173,7 @@ static void R_LoadCod1Surfaces( const byte *base ) {
 		surf->cubemapIndex = 0;
 		if ( mat_idx >= 0 && mat_idx < s_worldData.numShaders ) {
 			dshader_t *dsh = &s_worldData.shaders[mat_idx];
-			surf->shader = R_FindShader( dsh->shader, LIGHTMAP_BY_VERTEX, qtrue );
+			surf->shader = R_FindShader( dsh->shader, LIGHTMAP_WHITEIMAGE, qtrue );
 		} else {
 			surf->shader = tr.defaultShader;
 		}

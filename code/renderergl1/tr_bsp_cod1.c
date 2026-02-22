@@ -187,11 +187,7 @@ static void R_LoadCod1Surfaces( const byte *base ) {
 		/* Assign shader from material name */
 		if ( mat_idx >= 0 && mat_idx < s_worldData.numShaders ) {
 			dshader_t *dsh = &s_worldData.shaders[mat_idx];
-			if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
-				surf->shader = R_FindShader( dsh->shader, LIGHTMAP_BY_VERTEX, qtrue );
-			} else {
-				surf->shader = R_FindShader( dsh->shader, LIGHTMAP_BY_VERTEX, qtrue );
-			}
+			surf->shader = R_FindShader( dsh->shader, LIGHTMAP_WHITEIMAGE, qtrue );
 		} else {
 			surf->shader = tr.defaultShader;
 		}
