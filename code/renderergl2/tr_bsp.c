@@ -23,6 +23,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "tr_local.h"
 
+/* CoD1 IBSP v59 loader (tr_bsp_cod1.c) */
+void R_LoadCod1WorldMap( const byte *base );
+
 #define JSON_IMPLEMENTATION
 #include "../qcommon/json.h"
 #undef JSON_IMPLEMENTATION
@@ -37,8 +40,8 @@ void RE_LoadWorldMap( const char *name );
 
 */
 
-static	world_t		s_worldData;
-static	byte		*fileBase;
+world_t		s_worldData;
+byte		*fileBase;
 
 int			c_subdivisions;
 int			c_gridVerts;
@@ -101,7 +104,7 @@ R_ColorShiftLightingBytes
 
 ===============
 */
-static	void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
+void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
 	int		shift, r, g, b;
 
 	// shift the color data based on overbright range
@@ -1865,7 +1868,7 @@ static	void R_LoadSubmodels( lump_t *l ) {
 R_SetParent
 =================
 */
-static	void R_SetParent (mnode_t *node, mnode_t *parent)
+void R_SetParent (mnode_t *node, mnode_t *parent)
 {
 	node->parent = parent;
 	if (node->contents != -1)
@@ -2760,8 +2763,18 @@ void RE_LoadWorldMap( const char *name ) {
 	fileBase = (byte *)header;
 
 	i = LittleLong (header->version);
+
+	if ( i == COD1_BSP_VERSION ) {
+		/* CoD1 / CoDUO IBSP version 59 */
+		R_LoadCod1WorldMap( buffer.b );
+		s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
+		tr.world = &s_worldData;
+		ri.FS_FreeFile( buffer.v );
+		return;
+	}
+
 	if ( i != BSP_VERSION ) {
-		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)", 
+		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)",
 			name, i, BSP_VERSION);
 	}
 

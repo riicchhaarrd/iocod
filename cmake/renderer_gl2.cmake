@@ -9,6 +9,7 @@ set(RENDERER_GL2_SOURCES
     ${SOURCE_DIR}/renderergl2/tr_animation.c
     ${SOURCE_DIR}/renderergl2/tr_backend.c
     ${SOURCE_DIR}/renderergl2/tr_bsp.c
+    ${SOURCE_DIR}/renderergl2/tr_bsp_cod1.c
     ${SOURCE_DIR}/renderergl2/tr_cmds.c
     ${SOURCE_DIR}/renderergl2/tr_curve.c
     ${SOURCE_DIR}/renderergl2/tr_dsa.c
