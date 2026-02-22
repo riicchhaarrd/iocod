@@ -612,11 +612,26 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 		//
 		else if ( !Q_stricmp( token, "map" ) )
 		{
+			imgType_t type = IMGTYPE_COLORALPHA;
+			imgFlags_t flags = IMGFLAG_NONE;
+
 			token = COM_ParseExt( text, qfalse );
 			if ( !token[0] )
 			{
 				ri.Printf( PRINT_WARNING, "WARNING: missing parameter for 'map' keyword in shader '%s'\n", shader.name );
 				return qfalse;
+			}
+
+			// CoD1 extension: "map clamp <name>" is equivalent to "clampmap <name>"
+			if ( !Q_stricmp( token, "clamp" ) )
+			{
+				flags |= IMGFLAG_CLAMPTOEDGE;
+				token = COM_ParseExt( text, qfalse );
+				if ( !token[0] )
+				{
+					ri.Printf( PRINT_WARNING, "WARNING: missing parameter for 'map clamp' keyword in shader '%s'\n", shader.name );
+					return qfalse;
+				}
 			}
 
 			if ( !Q_stricmp( token, "$whiteimage" ) )
@@ -636,9 +651,6 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 			}
 			else
 			{
-				imgType_t type = IMGTYPE_COLORALPHA;
-				imgFlags_t flags = IMGFLAG_NONE;
-
 				if (!shader.noMipMaps)
 					flags |= IMGFLAG_MIPMAP;
 
