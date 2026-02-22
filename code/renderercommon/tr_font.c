@@ -398,14 +398,19 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 		font->glyphScale = readFloat();
 		Com_Memcpy(font->name, &fdFile[fdOffset], MAX_QPATH);
 
-		/* CoD1 stores bottom and xSkip as floats; convert to int pixel values. */
+		/* CoD1 .dat binary layout differs from Q3's glyphInfo_t field meanings:
+		 *   binary pos 1 (Q3 'top')    = imageWidth duplicate  — NOT the vertical offset
+		 *   binary pos 2 (Q3 'bottom') = true y-above-baseline as a float
+		 *   binary pos 4 (Q3 'xSkip') = horizontal advance    as a float
+		 * Remap to Q3 conventions so rendering uses the right values. */
 		if (isCoDFont) {
 			for (i = 0; i < GLYPHS_PER_FONT; i++) {
-				float fval;
-				Com_Memcpy(&fval, &font->glyphs[i].bottom, 4);
-				font->glyphs[i].bottom = (int)fval;
-				Com_Memcpy(&fval, &font->glyphs[i].xSkip, 4);
-				font->glyphs[i].xSkip = (int)fval;
+				float topf, xskipf;
+				Com_Memcpy(&topf,   &font->glyphs[i].bottom, 4); /* true top-above-baseline */
+				Com_Memcpy(&xskipf, &font->glyphs[i].xSkip,  4);
+				font->glyphs[i].top    = (int)(topf   + 0.5f);
+				font->glyphs[i].bottom = (int)(topf   + 0.5f) - font->glyphs[i].imageHeight;
+				font->glyphs[i].xSkip  = (int)(xskipf + 0.5f);
 			}
 		}
 
