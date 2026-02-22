@@ -557,8 +557,11 @@ static void CMod_LoadLeafsCod1( const cod1_dleaf_t *in, int count ) {
 	for ( i = 0; i < count; i++, in++, out++ ) {
 		out->cluster          = LittleLong( in->cluster );
 		out->area             = LittleLong( in->area );
-		out->firstLeafSurface = LittleLong( in->firstLeafSurface );
-		out->numLeafSurfaces  = LittleLong( in->numLeafSurfaces );
+		/* CoD1 leaf surfaces reference cell-based rendering data, not Q3
+		   bezier patches. cm.surfaces is never allocated for CoD1, so
+		   CM_TraceThroughLeaf must not iterate leaf surfaces. */
+		out->firstLeafSurface = 0;
+		out->numLeafSurfaces  = 0;
 		out->firstLeafBrush   = LittleLong( in->firstLeafBrush );
 		out->numLeafBrushes   = LittleLong( in->numLeafBrushes );
 
