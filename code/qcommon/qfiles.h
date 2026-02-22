@@ -507,13 +507,17 @@ typedef struct {
 #define COD1_LUMP_MATERIALS     0
 #define COD1_LUMP_LIGHTMAPS     1
 #define COD1_LUMP_PLANES        2
+#define COD1_LUMP_BRUSHSIDES    3
+#define COD1_LUMP_BRUSHES       4
 #define COD1_LUMP_TRIANGLESOUPS 6
 #define COD1_LUMP_VERTICES      7
 #define COD1_LUMP_TRIANGLES     8
 #define COD1_LUMP_LEAFSURFACES  13
 #define COD1_LUMP_BSPNODES      20
 #define COD1_LUMP_BSPLEAFS      21
+#define COD1_LUMP_LEAFBRUSHES   22
 #define COD1_LUMP_VISIBILITY    26
+#define COD1_LUMP_MODELS        27
 #define COD1_LUMP_ENTITIES      29
 
 /*
@@ -563,6 +567,13 @@ typedef struct {
     int numLeafBrushes;
     int cell;             /* portal cell index */
 } cod1_dleaf_t;
+
+typedef struct {
+	float		mins[3], maxs[3];
+	int			firstSurface, numSurfaces;
+	int			firstBrush, numBrushes;
+    int         unk1, unk2; /* CoD1 extra fields */
+} cod1_dmodel_t;
 
 
 #endif

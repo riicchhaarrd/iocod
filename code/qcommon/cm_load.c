@@ -559,8 +559,8 @@ static void CMod_LoadLeafsCod1( const cod1_dleaf_t *in, int count ) {
 		out->area             = LittleLong( in->area );
 		out->firstLeafSurface = LittleLong( in->firstLeafSurface );
 		out->numLeafSurfaces  = LittleLong( in->numLeafSurfaces );
-		out->firstLeafBrush   = 0;
-		out->numLeafBrushes   = 0;
+		out->firstLeafBrush   = LittleLong( in->firstLeafBrush );
+		out->numLeafBrushes   = LittleLong( in->numLeafBrushes );
 
 		if ( out->cluster >= cm.numClusters )
 			cm.numClusters = out->cluster + 1;
@@ -590,6 +590,153 @@ static lump_t CM_GetCod1Lump( const byte *base, int idx ) {
 
 /*
 =================
+CMod_LoadBrushSidesCod1
+=================
+*/
+void CMod_LoadBrushSidesCod1( lump_t *l ) {
+	int			*in; // Read as ints
+	cbrushside_t *out;
+	int			i, count;
+	int			planeNum, shaderNum;
+
+	in = (void *)(cmod_base + l->fileofs);
+	if (l->filelen % 8)
+		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
+	count = l->filelen / 8;
+
+	cm.brushsides = Hunk_Alloc( ( BOX_SIDES + count ) * sizeof( *cm.brushsides ), h_high );
+	cm.numBrushSides = count;
+
+	out = cm.brushsides;
+
+	Com_Printf("Loading BrushSides Cod1 (%d sides)...\n", count);
+
+	for ( i=0 ; i<count ; i++, in+=2, out++ ) {
+		planeNum = LittleLong(in[0]);
+		shaderNum = LittleLong(in[1]);
+
+		if ( i < 5 ) {
+			Com_Printf("Side %d: plane %d shader %d\n", i, planeNum, shaderNum);
+		}
+
+        if ( planeNum < 0 || planeNum >= cm.numPlanes ) {
+            // Com_Printf("Bad planeNum: %d\n", planeNum);
+            planeNum = 0;
+        }
+		out->plane = cm.planes + planeNum;
+        
+        if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
+            // Com_Printf("Bad shaderNum: %d\n", shaderNum);
+            shaderNum = 0;
+        }
+		out->shaderNum = shaderNum;
+		out->surfaceFlags = cm.shaders[shaderNum].surfaceFlags;
+	}
+}
+
+/*
+=================
+CMod_LoadBrushesCod1
+=================
+*/
+void CMod_LoadBrushesCod1( lump_t *l ) {
+	int			*in;
+	cbrush_t	*out;
+	int			i, count;
+	int			shaderNum;
+
+	in = (void *)(cmod_base + l->fileofs);
+	if (l->filelen % 12)
+		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
+	count = l->filelen / 12;
+
+	cm.brushes = Hunk_Alloc( ( BOX_BRUSHES + count ) * sizeof( *cm.brushes ), h_high );
+	cm.numBrushes = count;
+
+	out = cm.brushes;
+
+	for ( i=0 ; i<count ; i++, in+=3, out++ ) {
+		int raw0 = LittleLong(in[0]);
+		int raw1 = LittleLong(in[1]);
+		int raw2 = LittleLong(in[2]);
+
+		if ( raw0 < 0 || raw0 >= cm.numBrushSides ) {
+			Com_Printf("CMod_LoadBrushesCod1: bad firstSide: %d\n", raw0);
+			raw0 = 0;
+		}
+		out->sides = cm.brushsides + raw0;
+		out->numsides = raw1;
+
+		shaderNum = raw2;
+		if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
+            // Clamp or ignore
+            shaderNum = 0;
+		}
+		out->contents = cm.shaders[shaderNum].contentFlags;
+		out->shaderNum = shaderNum;
+
+		// CM_BoundBrush( out );
+	}
+}
+
+/*
+=================
+CMod_LoadSubmodelsCod1
+=================
+*/
+void CMod_LoadSubmodelsCod1( lump_t *l ) {
+	cod1_dmodel_t	*in;
+	cmodel_t	*out;
+	int			i, j, count;
+	int			*indexes;
+
+	in = (void *)(cmod_base + l->fileofs);
+	if (l->filelen % sizeof(*in))
+		Com_Error (ERR_DROP, "CMod_LoadSubmodelsCod1: funny lump size");
+	count = l->filelen / sizeof(*in);
+
+	if (count < 1)
+		Com_Error (ERR_DROP, "Map with no models");
+	cm.cmodels = Hunk_Alloc( count * sizeof( *cm.cmodels ), h_high );
+	cm.numSubModels = count;
+
+	if ( count > MAX_SUBMODELS ) {
+		Com_Error( ERR_DROP, "MAX_SUBMODELS exceeded" );
+	}
+
+	for ( i=0 ; i<count ; i++, in++)
+	{
+		out = &cm.cmodels[i];
+
+		for (j=0 ; j<3 ; j++)
+		{	// spread the mins / maxs by a pixel
+			out->mins[j] = LittleFloat (in->mins[j]) - 1;
+			out->maxs[j] = LittleFloat (in->maxs[j]) + 1;
+		}
+
+		if ( i == 0 ) {
+			continue;	// world model doesn't need other info
+		}
+
+		// make a "leaf" just to hold the model's brushes and surfaces
+		out->leaf.numLeafBrushes = LittleLong( in->numBrushes );
+		indexes = Hunk_Alloc( out->leaf.numLeafBrushes * 4, h_high );
+		out->leaf.firstLeafBrush = indexes - cm.leafbrushes;
+		for ( j = 0 ; j < out->leaf.numLeafBrushes ; j++ ) {
+			indexes[j] = LittleLong( in->firstBrush ) + j;
+		}
+
+		out->leaf.numLeafSurfaces = LittleLong( in->numSurfaces );
+		indexes = Hunk_Alloc( out->leaf.numLeafSurfaces * 4, h_high );
+		out->leaf.firstLeafSurface = indexes - cm.leafsurfaces;
+		for ( j = 0 ; j < out->leaf.numLeafSurfaces ; j++ ) {
+			indexes[j] = LittleLong( in->firstSurface ) + j;
+		}
+	}
+}
+
+/*
+=================
 CM_LoadMapCod1
 
 Loads a CoD1 IBSP version 59 map into the collision model.
@@ -605,6 +752,17 @@ static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
 	*checksum = LittleLong( Com_BlockChecksum( base, length ) );
 
 	cmod_base = (byte *)base;
+
+	/* Debug: Print all lump sizes to identify missing lumps */
+	{
+		int i;
+		cod1_dheader_t *header = (cod1_dheader_t *)base;
+		for ( i = 0; i < COD1_HEADER_LUMPS; i++ ) {
+			Com_Printf( "CoD1 Lump %d: offset %d length %d\n", i, 
+				LittleLong(header->lumps[i].fileofs), 
+				LittleLong(header->lumps[i].filelen) );
+		}
+	}
 
 	/* --- Shaders/Materials (lump 0): same 72-byte layout as Q3 dshader_t --- */
 	shaders_l = CM_GetCod1Lump( base, COD1_LUMP_MATERIALS );
@@ -628,36 +786,42 @@ static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
 		CMod_LoadLeafsCod1( leafs_in, num_leafs );
 	}
 
-	/* --- Empty brushsides, brushes, leaf brushes (no brush collision yet) --- */
-	cm.brushsides    = Hunk_Alloc( BOX_SIDES   * sizeof( *cm.brushsides    ), h_high );
-	cm.numBrushSides = 0;
-	cm.brushes       = Hunk_Alloc( BOX_BRUSHES * sizeof( *cm.brushes       ), h_high );
-	cm.numBrushes    = 0;
-	cm.leafbrushes   = Hunk_Alloc( BOX_BRUSHES * sizeof( *cm.leafbrushes   ), h_high );
-	cm.numLeafBrushes = 0;
+	/* --- Leaf Brushes (lump 22): indices into brushes for each leaf --- */
+	{
+		Com_Printf("Loading LeafBrushes...\n");
+		lump_t lb_l = CM_GetCod1Lump( base, COD1_LUMP_LEAFBRUSHES );
+		CMod_LoadLeafBrushes( &lb_l );
+	}
+
+	/* --- Brush Sides (lump 3): plane and shader info for brush faces --- */
+	{
+		Com_Printf("Loading BrushSides Cod1...\n");
+		lump_t bs_l = CM_GetCod1Lump( base, COD1_LUMP_BRUSHSIDES );
+		CMod_LoadBrushSidesCod1( &bs_l );
+	}
+
+	/* --- Brushes (lump 4): definition of solid volumes --- */
+	{
+		Com_Printf("Loading Brushes...\n");
+		lump_t b_l = CM_GetCod1Lump( base, COD1_LUMP_BRUSHES );
+		CMod_LoadBrushesCod1( &b_l );
+	}
 
 	/* Leaf surfaces: lump 13 contains int32 TriangleSoup indices used by renderer;
 	   the collision model doesn't need them, but we need a valid array */
 	{
+		Com_Printf("Loading LeafSurfaces...\n");
 		lump_t ls_l = CM_GetCod1Lump( base, COD1_LUMP_LEAFSURFACES );
 		CMod_LoadLeafSurfaces( &ls_l );
 	}
 
-	/* --- World submodel (index 0): large bounds encompassing the map --- */
-	cm.cmodels     = Hunk_Alloc( sizeof( *cm.cmodels ), h_high );
-	cm.numSubModels = 1;
-	/* Use root BSP node bounds (node 0 has world bounds) */
-	if ( cm.numNodes > 0 ) {
-		/* Nodes were loaded by CMod_LoadNodes into cm.nodes.
-		   Compute bounds by looking at all node bounding boxes.
-		   For simplicity use generous world bounds. */
-		for ( i = 0; i < 3; i++ ) {
-			cm.cmodels[0].mins[i] = -MAX_WORLD_COORD;
-			cm.cmodels[0].maxs[i] =  MAX_WORLD_COORD;
+	/* --- Models (lump 27): submodels including world (index 0) --- */
+	{
+		Com_Printf("Loading Models...\n");
+		lump_t m_l = CM_GetCod1Lump( base, COD1_LUMP_MODELS );
+		if ( m_l.filelen > 0 ) {
+			CMod_LoadSubmodelsCod1( &m_l );
 		}
-	} else {
-		VectorSet( cm.cmodels[0].mins, -1, -1, -1 );
-		VectorSet( cm.cmodels[0].maxs,  1,  1,  1 );
 	}
 
 	/* --- Entity string (lump 29) --- */
@@ -848,7 +1012,8 @@ CM_InlineModel
 */
 clipHandle_t	CM_InlineModel( int index ) {
 	if ( index < 0 || index >= cm.numSubModels ) {
-		Com_Error (ERR_DROP, "CM_InlineModel: bad number");
+		Com_Printf ("CM_InlineModel: bad number %d (total %d)\n", index, cm.numSubModels);
+		return 0;
 	}
 	return index;
 }
@@ -867,14 +1032,14 @@ char	*CM_EntityString( void ) {
 
 int		CM_LeafCluster( int leafnum ) {
 	if (leafnum < 0 || leafnum >= cm.numLeafs) {
-		Com_Error (ERR_DROP, "CM_LeafCluster: bad number");
+		Com_Error (ERR_DROP, "CM_LeafCluster: bad number %d (total %d)", leafnum, cm.numLeafs);
 	}
 	return cm.leafs[leafnum].cluster;
 }
 
 int		CM_LeafArea( int leafnum ) {
 	if ( leafnum < 0 || leafnum >= cm.numLeafs ) {
-		Com_Error (ERR_DROP, "CM_LeafArea: bad number");
+		Com_Error (ERR_DROP, "CM_LeafArea: bad number %d (total %d)", leafnum, cm.numLeafs);
 	}
 	return cm.leafs[leafnum].area;
 }
