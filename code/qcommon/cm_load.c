@@ -763,17 +763,6 @@ static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
 
 	cmod_base = (byte *)base;
 
-	/* Debug: Print all lump sizes to identify missing lumps */
-	{
-		int i;
-		cod1_dheader_t *header = (cod1_dheader_t *)base;
-		for ( i = 0; i < COD1_HEADER_LUMPS; i++ ) {
-			Com_Printf( "CoD1 Lump %d: offset %d length %d\n", i, 
-				LittleLong(header->lumps[i].fileofs), 
-				LittleLong(header->lumps[i].filelen) );
-		}
-	}
-
 	/* --- Shaders/Materials (lump 0): same 72-byte layout as Q3 dshader_t --- */
 	shaders_l = CM_GetCod1Lump( base, COD1_LUMP_MATERIALS );
 	CMod_LoadShaders( &shaders_l );
