@@ -593,103 +593,137 @@ static lump_t CM_GetCod1Lump( const byte *base, int idx ) {
 
 /*
 =================
-CMod_LoadBrushSidesCod1
+CMod_LoadBrushesAndSidesCod1
+
+CoD1 brush format packs 6 axial AABB extents into the first 6 brushsides
+(the plane field is reinterpreted as a float extent, not a plane index),
+followed by (numSides - 6) non-axial sides that use the plane field as a
+standard plane-lump index.
+
+Axis/sign ordering for the 6 axial slots:
+  [axis=0,sign=0] mins[0]   [axis=0,sign=1] maxs[0]
+  [axis=1,sign=0] mins[1]   [axis=1,sign=1] maxs[1]
+  [axis=2,sign=0] mins[2]   [axis=2,sign=1] maxs[2]
 =================
 */
-void CMod_LoadBrushSidesCod1( lump_t *l ) {
-	int			*in; // Read as ints
-	cbrushside_t *out;
-	int			i, count;
-	int			shaderNum;
-    unsigned    raw0;
+static void CMod_LoadBrushesAndSidesCod1( lump_t *bl, lump_t *bsl ) {
+	unsigned int  *brush_in;
+	int           *side_in;
+	cbrush_t      *bout;
+	cbrushside_t  *sout;
+	cplane_t      *axialPlanes;
+	int            numBrushes, numBrushSides;
+	int            i, axis, sign, k;
+	int            sideLumpIdx;
 
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % 8)
-		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
-	count = l->filelen / 8;
+	if ( bl->filelen % 4 )
+		Com_Error( ERR_DROP, "CMod_LoadBrushesAndSidesCod1: funny brush lump size" );
+	if ( bsl->filelen % 8 )
+		Com_Error( ERR_DROP, "CMod_LoadBrushesAndSidesCod1: funny brushside lump size" );
 
-	cm.brushsides = Hunk_Alloc( ( BOX_SIDES + count ) * sizeof( *cm.brushsides ), h_high );
-	cm.numBrushSides = count;
+	numBrushes    = bl->filelen  / 4;
+	numBrushSides = bsl->filelen / 8;
 
-	out = cm.brushsides;
+	/* One cplane_t per axial slot (6 per brush) — stored in a separate pool */
+	axialPlanes = Hunk_Alloc( numBrushes * 6 * sizeof( cplane_t ), h_high );
 
-	Com_Printf("Loading BrushSides Cod1 (%d sides)...\n", count);
+	cm.brushsides    = Hunk_Alloc( ( BOX_SIDES    + numBrushSides ) * sizeof( *cm.brushsides ), h_high );
+	cm.numBrushSides = numBrushSides;
 
-	for ( i=0 ; i<count ; i++, in+=2, out++ ) {
-        raw0 = LittleLong(in[0]);
-		shaderNum = LittleLong(in[1]);
+	cm.brushes    = Hunk_Alloc( ( BOX_BRUSHES + numBrushes ) * sizeof( *cm.brushes ), h_high );
+	cm.numBrushes = numBrushes;
 
-        if ( raw0 < (unsigned)cm.numPlanes ) {
-            out->plane = cm.planes + raw0;
-        } else {
-            // FIXME: Handle explicit plane definition or other types
-            out->plane = cm.planes + 0;
-        }
-        
-        if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
-            shaderNum = 0;
-        }
-		out->shaderNum = shaderNum;
-		out->surfaceFlags = cm.shaders[shaderNum].surfaceFlags;
-	}
-}
+	brush_in    = (unsigned int *)(cmod_base + bl->fileofs);
+	side_in     = (int *)(cmod_base + bsl->fileofs);
+	bout        = cm.brushes;
+	sout        = cm.brushsides;
+	sideLumpIdx = 0;
 
-/*
-=================
-CMod_LoadBrushesCod1
-=================
-*/
-void CMod_LoadBrushesCod1( lump_t *l ) {
-	int			*in;
-	cbrush_t	*out;
-	int			i, count;
-	int			shaderNum, numSides, firstSide;
-    int         accumulatedFirstSide = 0;
+	for ( i = 0; i < numBrushes; i++, brush_in++, bout++ ) {
+		unsigned int raw      = LittleLong( *brush_in );
+		int          numSides  = (int)( raw         & 0xFFFF );
+		int          shaderNum = (int)( (raw >> 16) & 0xFFFF );
+		int          nonAxial  = numSides - 6;
+		float        mins[3], maxs[3];
 
-	in = (void *)(cmod_base + l->fileofs);
-	if (l->filelen % 4)
-		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
-	count = l->filelen / 4;
-
-	cm.brushes = Hunk_Alloc( ( BOX_BRUSHES + count ) * sizeof( *cm.brushes ), h_high );
-	cm.numBrushes = count;
-
-	out = cm.brushes;
-
-	for ( i=0 ; i<count ; i++, in++, out++ ) {
-		int raw0 = LittleLong(in[0]);
-
-		numSides = raw0 & 0xFFFF;
-		shaderNum = (raw0 >> 16) & 0xFFFF;
-        
-        // Implicit firstSide
-        firstSide = accumulatedFirstSide;
-        accumulatedFirstSide += numSides;
-
-		if ( firstSide + numSides > cm.numBrushSides ) {
-            // Clip numSides to avoid overrun
-            if ( firstSide < cm.numBrushSides ) {
-                numSides = cm.numBrushSides - firstSide;
-            } else {
-                numSides = 0;
-            }
+		if ( nonAxial < 0 ) {
+			/* Fewer than 6 sides — degenerate, skip all */
+			nonAxial = 0;
+			numSides = 0;
 		}
-		out->sides = cm.brushsides + firstSide;
-		out->numsides = numSides;
-
-		if ( shaderNum < 0 || shaderNum >= cm.numShaders ) {
-            shaderNum = 0;
+		if ( sideLumpIdx + numSides > numBrushSides ) {
+			int avail = numBrushSides - sideLumpIdx;
+			if ( avail < 6 ) { numSides = 0; nonAxial = 0; }
+			else             { nonAxial = avail - 6; numSides = avail; }
 		}
-		out->contents = cm.shaders[shaderNum].contentFlags;
-		out->shaderNum = shaderNum;
 
-		if ( out->numsides >= 6 ) {
-			CM_BoundBrush( out );
+		if ( shaderNum < 0 || shaderNum >= cm.numShaders ) shaderNum = 0;
+
+		bout->sides    = sout;
+		bout->numsides = numSides;
+		bout->contents = cm.shaders[shaderNum].contentFlags;
+		bout->shaderNum = shaderNum;
+
+		/* --- 6 axial sides: plane field stores a float AABB extent --- */
+		if ( numSides >= 6 ) {
+			for ( axis = 0; axis < 3; axis++ ) {
+				for ( sign = 0; sign < 2; sign++ ) {
+					union { int i; float f; } u;
+					int       matNum;
+					cplane_t *ap;
+
+					u.i    = LittleLong( side_in[sideLumpIdx * 2] );
+					matNum = LittleLong( side_in[sideLumpIdx * 2 + 1] );
+					if ( matNum < 0 || matNum >= cm.numShaders ) matNum = 0;
+
+					/* sign==0 → mins[axis], sign==1 → maxs[axis] */
+					if ( sign == 0 ) mins[axis] = u.f;
+					else             maxs[axis] = u.f;
+
+					/* Build an outward-facing axial cplane_t */
+					ap = &axialPlanes[ i * 6 + axis * 2 + sign ];
+					Com_Memset( ap, 0, sizeof( *ap ) );
+					if ( sign == 0 ) {
+						ap->normal[axis] = -1.0f;   /* outward normal for min face */
+						ap->dist         = -u.f;
+					} else {
+						ap->normal[axis] =  1.0f;   /* outward normal for max face */
+						ap->dist         =  u.f;
+					}
+					ap->type     = (byte)axis;      /* PLANE_X/Y/Z regardless of sign */
+					SetPlaneSignbits( ap );
+
+					sout->plane        = ap;
+					sout->shaderNum    = matNum;
+					sout->surfaceFlags = cm.shaders[matNum].surfaceFlags;
+					sout++;
+					sideLumpIdx++;
+				}
+			}
+		}
+
+		/* --- Non-axial sides: plane field is a plane-lump index --- */
+		for ( k = 0; k < nonAxial; k++, sideLumpIdx++, sout++ ) {
+			int planeNum = LittleLong( side_in[sideLumpIdx * 2] );
+			int matNum   = LittleLong( side_in[sideLumpIdx * 2 + 1] );
+			if ( matNum < 0 || matNum >= cm.numShaders ) matNum = 0;
+			sout->plane        = ( planeNum >= 0 && planeNum < cm.numPlanes )
+			                     ? cm.planes + planeNum : cm.planes;
+			sout->shaderNum    = matNum;
+			sout->surfaceFlags = cm.shaders[matNum].surfaceFlags;
+		}
+
+		/* Set brush bounds directly from the axial extents */
+		if ( numSides >= 6 ) {
+			VectorCopy( mins, bout->bounds[0] );
+			VectorCopy( maxs, bout->bounds[1] );
 		} else {
-            VectorClear(out->bounds[0]);
-            VectorClear(out->bounds[1]);
-        }
+			VectorClear( bout->bounds[0] );
+			VectorClear( bout->bounds[1] );
+		}
 	}
+
+	Com_Printf( "Loaded %d brushes, %d brush sides (CoD1)\n", numBrushes, numBrushSides );
 }
 
 /*
@@ -795,18 +829,14 @@ static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
 		CMod_LoadLeafBrushes( &lb_l );
 	}
 
-	/* --- Brush Sides (lump 3): plane and shader info for brush faces --- */
+	/* --- Brushes (lump 4) + BrushSides (lump 3): combined CoD1 format ---
+	   The first 6 brushsides per brush store float AABB extents, not plane
+	   indices.  The remaining sides use plane-lump indices.  Both lumps must
+	   be processed together so we know which sides are axial. */
 	{
-		Com_Printf("Loading BrushSides Cod1...\n");
 		lump_t bs_l = CM_GetCod1Lump( base, COD1_LUMP_BRUSHSIDES );
-		CMod_LoadBrushSidesCod1( &bs_l );
-	}
-
-	/* --- Brushes (lump 4): definition of solid volumes --- */
-	{
-		Com_Printf("Loading Brushes...\n");
-		lump_t b_l = CM_GetCod1Lump( base, COD1_LUMP_BRUSHES );
-		CMod_LoadBrushesCod1( &b_l );
+		lump_t b_l  = CM_GetCod1Lump( base, COD1_LUMP_BRUSHES );
+		CMod_LoadBrushesAndSidesCod1( &b_l, &bs_l );
 	}
 
 	/* Leaf surfaces: lump 13 contains int32 TriangleSoup indices used by renderer;
