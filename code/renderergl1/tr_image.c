@@ -919,8 +919,11 @@ typedef struct
 
 // Note that the ordering indicates the order of preference used
 // when there are multiple images of different formats available
+void R_LoadDDS( const char *name, byte **pic, int *width, int *height );
+
 static imageExtToLoaderMap_t imageLoaders[ ] =
 {
+	{ "dds",  R_LoadDDS },
 	{ "tga",  R_LoadTGA },
 	{ "jpg",  R_LoadJPG },
 	{ "jpeg", R_LoadJPG },

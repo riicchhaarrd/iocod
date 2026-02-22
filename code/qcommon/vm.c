@@ -356,6 +356,7 @@ intptr_t QDECL VM_DllSyscall( intptr_t arg, ... ) {
 }
 
 
+#ifndef NO_QVM
 /*
 =================
 VM_LoadQVM
@@ -520,6 +521,7 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 
 	return header.h;
 }
+#endif // NO_QVM
 
 /*
 =================
@@ -534,14 +536,16 @@ even if the client is pure, so take "unpure" as argument.
 */
 vm_t *VM_Restart(vm_t *vm, qboolean unpure)
 {
+#ifndef NO_QVM
 	vmHeader_t	*header;
+#endif
 
 	// DLL's can't be restarted in place
 	if ( vm->dllHandle ) {
 		char	name[MAX_QPATH];
 		intptr_t	(*systemCall)( intptr_t *parms );
-		
-		systemCall = vm->systemCall;	
+
+		systemCall = vm->systemCall;
 		Q_strncpyz( name, vm->name, sizeof( name ) );
 
 		VM_Free( vm );
@@ -550,6 +554,7 @@ vm_t *VM_Restart(vm_t *vm, qboolean unpure)
 		return vm;
 	}
 
+#ifndef NO_QVM
 	// load the image
 	Com_Printf("VM_Restart()\n");
 
@@ -561,6 +566,9 @@ vm_t *VM_Restart(vm_t *vm, qboolean unpure)
 
 	// free the original file
 	FS_FreeFile(header);
+#else
+	Com_Error(ERR_DROP, "VM_Restart: QVM support not compiled in");
+#endif
 
 	return vm;
 }
@@ -576,8 +584,11 @@ it will attempt to load as a system dll
 vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *), 
 				vmInterpret_t interpret ) {
 	vm_t		*vm;
+#ifndef NO_QVM
 	vmHeader_t	*header = NULL;
-	int			i, remaining, retval;
+	int			remaining;
+#endif
+	int			i, retval;
 	char filename[MAX_OSPATH];
 	void *startSearch = NULL;
 
@@ -585,7 +596,12 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 		Com_Error( ERR_FATAL, "VM_Create: bad parms" );
 	}
 
+#ifdef NO_QVM
+	/* QVM support compiled out — only native DLLs are supported */
+	interpret = VMI_NATIVE;
+#else
 	remaining = Hunk_MemoryRemaining();
+#endif
 
 	// see if we already have the VM
 	for ( i = 0 ; i < MAX_VM ; i++ ) {
@@ -619,15 +635,16 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 			Com_Printf("Try loading dll file %s\n", filename);
 
 			vm->dllHandle = Sys_LoadGameDll(filename, &vm->entryPoint, VM_DllSyscall);
-			
+
 			if(vm->dllHandle)
 			{
 				vm->systemCall = systemCalls;
 				return vm;
 			}
-			
+
 			Com_Printf("Failed loading dll, trying next\n");
 		}
+#ifndef NO_QVM
 		else if(retval == VMI_COMPILED)
 		{
 			vm->searchPath = startSearch;
@@ -637,11 +654,13 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 			// VM_Free overwrites the name on failed load
 			Q_strncpyz(vm->name, module, sizeof(vm->name));
 		}
+#endif
 	} while(retval >= 0);
 	
 	if(retval < 0)
 		return NULL;
 
+#ifndef NO_QVM
 	vm->systemCall = systemCalls;
 
 	// allocate space for the jump targets, which will be filled in by the compile/prep functions
@@ -682,6 +701,7 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 	vm->stackBottom = vm->programStack - PROGRAM_STACK_SIZE;
 
 	Com_Printf("%s loaded in %d bytes on the hunk\n", module, remaining - Hunk_MemoryRemaining());
+#endif // NO_QVM
 
 	return vm;
 }
@@ -837,6 +857,7 @@ intptr_t QDECL VM_Call( vm_t *vm, int callnum, ... )
                             args[4],  args[5],  args[6], args[7],
                             args[8],  args[9], args[10], args[11]);
 	} else {
+#ifndef NO_QVM
 #if ( id386 || idsparc ) && !defined __clang__ // calling convention doesn't need conversion in some cases
 #ifdef HAVE_VM_COMPILED
 		if ( vm->compiled )
@@ -864,6 +885,10 @@ intptr_t QDECL VM_Call( vm_t *vm, int callnum, ... )
 #endif
 			r = VM_CallInterpreted( vm, &a.callnum );
 #endif
+#else // NO_QVM
+		r = 0;
+		Com_Error(ERR_DROP, "VM_Call: no entry point and QVM support not compiled in");
+#endif // NO_QVM
 	}
 	--vm->callLevel;
 

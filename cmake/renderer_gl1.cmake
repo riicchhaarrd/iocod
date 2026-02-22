@@ -14,6 +14,7 @@ set(RENDERER_GL1_SOURCES
     ${SOURCE_DIR}/renderergl1/tr_curve.c
     ${SOURCE_DIR}/renderergl1/tr_flares.c
     ${SOURCE_DIR}/renderergl1/tr_image.c
+    ${SOURCE_DIR}/renderergl1/tr_image_dds.c
     ${SOURCE_DIR}/renderergl1/tr_init.c
     ${SOURCE_DIR}/renderergl1/tr_light.c
     ${SOURCE_DIR}/renderergl1/tr_main.c

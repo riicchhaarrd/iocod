@@ -372,7 +372,10 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 	}
 
 	len = ri.FS_ReadFile(name, NULL);
-	if (len == sizeof(fontInfo_t)) {
+	/* CoD1 font .dat files are 4 bytes larger than Q3's fontInfo_t because
+	 * they store bottom/xSkip as floats and have an extra field after glyphs. */
+	if (len == sizeof(fontInfo_t) || len == sizeof(fontInfo_t) + 4) {
+		qboolean isCoDFont = (len == sizeof(fontInfo_t) + 4);
 		ri.FS_ReadFile(name, &faceData);
 		fdOffset = 0;
 		fdFile = faceData;
@@ -394,6 +397,17 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 		}
 		font->glyphScale = readFloat();
 		Com_Memcpy(font->name, &fdFile[fdOffset], MAX_QPATH);
+
+		/* CoD1 stores bottom and xSkip as floats; convert to int pixel values. */
+		if (isCoDFont) {
+			for (i = 0; i < GLYPHS_PER_FONT; i++) {
+				float fval;
+				Com_Memcpy(&fval, &font->glyphs[i].bottom, 4);
+				font->glyphs[i].bottom = (int)fval;
+				Com_Memcpy(&fval, &font->glyphs[i].xSkip, 4);
+				font->glyphs[i].xSkip = (int)fval;
+			}
+		}
 
 //		Com_Memcpy(font, faceData, sizeof(fontInfo_t));
 		Q_strncpyz(font->name, name, sizeof(font->name));

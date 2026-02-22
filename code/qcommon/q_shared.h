@@ -27,18 +27,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // A user mod should never modify this file
 
 #ifdef STANDALONE
-  #define PRODUCT_NAME				"iofoo3"
-  #define BASEGAME					"foobar"
-  #define CLIENT_WINDOW_TITLE		"changeme"
-  #define CLIENT_WINDOW_MIN_TITLE	"changeme2"
-  #define HOMEPATH_NAME_UNIX_LEGACY	".foo"
-  #define HOMEPATH_NAME				"FooBar"
-  #define GAMENAME_FOR_MASTER		"foobar"	// must NOT contain whitespace
-  #define CINEMATICS_LOGO		"foologo.roq"
-  #define CINEMATICS_INTRO		"intro.roq"
-//  #define LEGACY_PROTOCOL	// You probably don't need this for your standalone game
-//  #define PROTOCOL_HANDLER		"foobar"
-  #define CONFIG_PREFIX			"fooconfig"
+  #define PRODUCT_NAME				"iocod"
+  #define BASEGAME					"main"
+  #define CLIENT_WINDOW_TITLE		"iocod"
+  #define CLIENT_WINDOW_MIN_TITLE	"iocod"
+  #define HOMEPATH_NAME_UNIX_LEGACY	".iocod"
+  #define HOMEPATH_NAME				"iocod"
+  #define GAMENAME_FOR_MASTER		"iocod"	// must NOT contain whitespace
+  // No intro/logo cinematics for CoD1 (uses ROQ files not present in linux port)
+//  #define LEGACY_PROTOCOL
+//  #define PROTOCOL_HANDLER		"iocod"
+  #define CONFIG_PREFIX			"iocod"
 #else
   #define PRODUCT_NAME				"ioq3"
   #define BASEGAME					"baseq3"

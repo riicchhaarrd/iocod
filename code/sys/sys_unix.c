@@ -481,11 +481,24 @@ char *Sys_DefaultHomeStatePath(void)
 /*
 ================
 Sys_SteamPath
+
+Returns the base path containing the CoD1 'main' directory.
+CoD1 on Steam (via Proton) keeps game data under steamapps/common.
 ================
 */
 char *Sys_SteamPath( void )
 {
-	// Steam doesn't let you install Quake 3 on Mac/Linux
+#ifdef STANDALONE
+	static char steamPath[MAX_OSPATH];
+	const char *home = getenv("HOME");
+
+	if(home && *home)
+	{
+		Com_sprintf(steamPath, sizeof(steamPath),
+			"%s/.steam/steam/steamapps/common/Call of Duty", home);
+		return steamPath;
+	}
+#endif
 	return "";
 }
 

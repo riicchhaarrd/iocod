@@ -24,11 +24,6 @@ set(COMMON_SOURCES
     ${SOURCE_DIR}/qcommon/unzip.c
     ${SOURCE_DIR}/qcommon/ioapi.c
     ${SOURCE_DIR}/qcommon/vm.c
-    ${SOURCE_DIR}/qcommon/vm_armv7l.c
-    ${SOURCE_DIR}/qcommon/vm_interpreted.c
-    ${SOURCE_DIR}/qcommon/vm_powerpc.c
-    ${SOURCE_DIR}/qcommon/vm_sparc.c
-    ${SOURCE_DIR}/qcommon/vm_x86.c
 )
 
 disable_warnings(

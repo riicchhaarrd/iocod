@@ -1113,6 +1113,35 @@ void Script_Close(itemDef_t *item, char **args) {
   }
 }
 
+/* CoD1 compatibility: ingameclose behaves like close from the main menu */
+void Script_InGameClose(itemDef_t *item, char **args) {
+  const char *name;
+  if (String_Parse(args, &name)) {
+    Menus_CloseByName(name);
+  }
+}
+
+/*
+ * CoD1 compatibility: savegamehide/restarthide hide an item when there is no
+ * active game to resume/restart respectively.  We conservatively hide the
+ * item whenever no game is running (cl_paused == 0 at the main menu).
+ */
+void Script_SavegameHide(itemDef_t *item, char **args) {
+  const char *name;
+  char val[8];
+  if (String_Parse(args, &name)) {
+    DC->getCVarString("cl_paused", val, sizeof(val));
+    if (!val[0] || val[0] == '0') {
+      Menu_ShowItemByName(item->parent, name, qfalse);
+    }
+  }
+}
+
+void Script_RestartHide(itemDef_t *item, char **args) {
+  /* Same logic as savegamehide — hide when not in a running game */
+  Script_SavegameHide(item, args);
+}
+
 void Menu_TransitionItemByName(menuDef_t *menu, const char *p, rectDef_t rectFrom, rectDef_t rectTo, int time, float amt) {
   itemDef_t *item;
   int i;
@@ -1267,7 +1296,11 @@ commandDef_t commandList[] =
   {"exec", &Script_Exec},           // group/name
   {"play", &Script_Play},           // group/name
   {"playlooped", &Script_playLooped},           // group/name
-  {"orbit", &Script_Orbit}                      // group/name
+  {"orbit", &Script_Orbit},                     // group/name
+  /* CoD1 compatibility */
+  {"ingameclose",   &Script_InGameClose},
+  {"savegamehide",  &Script_SavegameHide},
+  {"restarthide",   &Script_RestartHide}
 };
 
 int scriptCommandCount = ARRAY_LEN(commandList);

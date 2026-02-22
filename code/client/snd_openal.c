@@ -242,13 +242,54 @@ static sfxHandle_t S_AL_BufferFind(const char *filename)
 
 /*
 =================
+S_AL_MakeSilentBuffer
+
+Creates a minimal silent OpenAL buffer as a fallback default.
+Used in standalone mode when the Q3 default sound is absent.
+=================
+*/
+static ALuint S_AL_MakeSilentBuffer( void )
+{
+	ALuint buf;
+	/* One frame of silence at 22050 Hz, 8-bit mono */
+	static const ALubyte silence[4] = { 0x80, 0x80, 0x80, 0x80 };
+
+	S_AL_ClearError( qfalse );
+	qalGenBuffers( 1, &buf );
+	if( qalGetError() != AL_NO_ERROR )
+		return 0;
+	qalBufferData( buf, AL_FORMAT_MONO8, silence, sizeof( silence ), 22050 );
+	if( qalGetError() != AL_NO_ERROR )
+	{
+		qalDeleteBuffers( 1, &buf );
+		return 0;
+	}
+	return buf;
+}
+
+/*
+=================
 S_AL_BufferUseDefault
 =================
 */
 static void S_AL_BufferUseDefault(sfxHandle_t sfx)
 {
 	if(sfx == default_sfx)
+	{
+#ifdef STANDALONE
+		/* In standalone mode the Q3 default sound may not exist; use silence. */
+		ALuint silentBuf = S_AL_MakeSilentBuffer();
+		if( silentBuf )
+		{
+			Com_Printf( S_COLOR_YELLOW "WARNING: Can't load default sound %s, using silence\n",
+				knownSfx[sfx].filename );
+			knownSfx[sfx].buffer    = silentBuf;
+			knownSfx[sfx].inMemory  = qtrue;
+			return;
+		}
+#endif
 		Com_Error(ERR_FATAL, "Can't load default sound effect %s", knownSfx[sfx].filename);
+	}
 
 	Com_Printf( S_COLOR_YELLOW "WARNING: Using default sound for %s\n", knownSfx[sfx].filename);
 	knownSfx[sfx].isDefault = qtrue;
