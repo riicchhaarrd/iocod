@@ -481,4 +481,88 @@ typedef struct {
 } dsurface_t;
 
 
+/*
+==============================================================================
+
+  Call of Duty 1 / CoD:UO IBSP version 59 BSP format
+
+==============================================================================
+*/
+
+#define COD1_BSP_VERSION    59
+#define COD1_HEADER_LUMPS   33
+
+typedef struct {
+    int filelen;    /* length comes FIRST in CoD1 (reversed vs Q3) */
+    int fileofs;
+} cod1_lump_t;
+
+typedef struct {
+    int            ident;
+    int            version;
+    cod1_lump_t    lumps[COD1_HEADER_LUMPS];
+} cod1_dheader_t;
+
+/* CoD1 lump indices */
+#define COD1_LUMP_MATERIALS     0
+#define COD1_LUMP_LIGHTMAPS     1
+#define COD1_LUMP_PLANES        2
+#define COD1_LUMP_TRIANGLESOUPS 6
+#define COD1_LUMP_VERTICES      7
+#define COD1_LUMP_TRIANGLES     8
+#define COD1_LUMP_LEAFSURFACES  13
+#define COD1_LUMP_BSPNODES      20
+#define COD1_LUMP_BSPLEAFS      21
+#define COD1_LUMP_VISIBILITY    26
+#define COD1_LUMP_ENTITIES      29
+
+/*
+ * CoD1 material entry - 72 bytes total, same as Q3 dshader_t.
+ * The name[64] field aligns with Q3's shader[MAX_QPATH].
+ * The 8-byte flags field is interpreted as two 4-byte ints
+ * (surfaceFlags, contentFlags) just like Q3.
+ */
+typedef struct {
+    char name[64];
+    int  surfaceFlags;
+    int  contentFlags;
+} cod1_material_t;
+
+/* CoD1 TriangleSoup - 16 bytes */
+typedef struct {
+    unsigned short  materialIdx;
+    unsigned short  drawOrder;
+    unsigned int    vertsOffset;   /* first vertex index in the global vertex array */
+    unsigned short  vertsLength;   /* number of vertices */
+    unsigned short  trisLength;    /* number of triangle indices */
+    unsigned int    trisOffset;    /* first triangle index in the global index array */
+} cod1_trianglesoup_t;
+
+/*
+ * CoD1 vertex - 44 bytes.
+ * Memory layout is identical to Q3's drawVert_t
+ * (xyz[3] + st[2] + lightmap[2] + normal[3] + color[4]).
+ */
+typedef struct {
+    float   position[3];
+    float   uv[2];
+    float   lightmapUV[2];
+    float   normal[3];
+    byte    color[4];
+} cod1_vertex_t;
+
+/* CoD1 BSP leaf - 36 bytes (vs Q3's 48 bytes) */
+typedef struct {
+    int cluster;          /* -1 = solid */
+    int area;
+    int unk1;             /* always 0 */
+    int unk2;             /* always 0 */
+    int firstLeafSurface; /* index into leaf-surface index array (lump 13) */
+    int numLeafSurfaces;
+    int firstLeafBrush;   /* -1 or 0/1; brush system TBD */
+    int numLeafBrushes;
+    int cell;             /* portal cell index */
+} cod1_dleaf_t;
+
+
 #endif

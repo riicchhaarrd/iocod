@@ -536,6 +536,147 @@ void CMod_LoadPatches( lump_t *surfs, lump_t *verts ) {
 	}
 }
 
+/*
+=================
+CMod_LoadLeafsCod1
+
+Loads CoD1 BSP leafs (36-byte format, no bounding box stored per leaf).
+=================
+*/
+static void CMod_LoadLeafsCod1( const cod1_dleaf_t *in, int count ) {
+	int		i;
+	cLeaf_t	*out;
+
+	if ( count < 1 )
+		Com_Error( ERR_DROP, "Map with no leafs" );
+
+	cm.leafs = Hunk_Alloc( ( BOX_LEAFS + count ) * sizeof( *cm.leafs ), h_high );
+	cm.numLeafs = count;
+
+	out = cm.leafs;
+	for ( i = 0; i < count; i++, in++, out++ ) {
+		out->cluster          = LittleLong( in->cluster );
+		out->area             = LittleLong( in->area );
+		out->firstLeafSurface = LittleLong( in->firstLeafSurface );
+		out->numLeafSurfaces  = LittleLong( in->numLeafSurfaces );
+		out->firstLeafBrush   = 0;
+		out->numLeafBrushes   = 0;
+
+		if ( out->cluster >= cm.numClusters )
+			cm.numClusters = out->cluster + 1;
+		if ( out->area >= cm.numAreas )
+			cm.numAreas = out->area + 1;
+	}
+
+	cm.areas      = Hunk_Alloc( cm.numAreas * sizeof( *cm.areas ), h_high );
+	cm.areaPortals = Hunk_Alloc( cm.numAreas * cm.numAreas * sizeof( *cm.areaPortals ), h_high );
+}
+
+/*
+=================
+CM_GetCod1Lump
+
+Helper: extract a CoD1 lump entry as a Q3 lump_t.
+CoD1 lump entries store [filelen, fileofs] (reversed vs Q3).
+=================
+*/
+static lump_t CM_GetCod1Lump( const byte *base, int idx ) {
+	const cod1_dheader_t *hdr = (const cod1_dheader_t *)base;
+	lump_t out;
+	out.filelen = LittleLong( hdr->lumps[idx].filelen );
+	out.fileofs = LittleLong( hdr->lumps[idx].fileofs );
+	return out;
+}
+
+/*
+=================
+CM_LoadMapCod1
+
+Loads a CoD1 IBSP version 59 map into the collision model.
+=================
+*/
+static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
+	lump_t             shaders_l, planes_l, nodes_l, entities_l, vis_l;
+	const cod1_dleaf_t *leafs_in;
+	int                 num_leafs;
+	int                 i;
+	byte               *visBuf;
+
+	*checksum = LittleLong( Com_BlockChecksum( base, length ) );
+
+	cmod_base = (byte *)base;
+
+	/* --- Shaders/Materials (lump 0): same 72-byte layout as Q3 dshader_t --- */
+	shaders_l = CM_GetCod1Lump( base, COD1_LUMP_MATERIALS );
+	CMod_LoadShaders( &shaders_l );
+
+	/* --- Planes (lump 2): identical to Q3 --- */
+	planes_l = CM_GetCod1Lump( base, COD1_LUMP_PLANES );
+	CMod_LoadPlanes( &planes_l );
+
+	/* --- Nodes (lump 20): identical 36-byte Q3 format --- */
+	nodes_l = CM_GetCod1Lump( base, COD1_LUMP_BSPNODES );
+	CMod_LoadNodes( &nodes_l );
+
+	/* --- Leafs (lump 21): 36-byte CoD1 format --- */
+	{
+		lump_t leafs_l = CM_GetCod1Lump( base, COD1_LUMP_BSPLEAFS );
+		if ( leafs_l.filelen % sizeof( cod1_dleaf_t ) )
+			Com_Error( ERR_DROP, "CM_LoadMapCod1: funny leaf lump size" );
+		num_leafs = leafs_l.filelen / sizeof( cod1_dleaf_t );
+		leafs_in  = (const cod1_dleaf_t *)( base + leafs_l.fileofs );
+		CMod_LoadLeafsCod1( leafs_in, num_leafs );
+	}
+
+	/* --- Empty brushsides, brushes, leaf brushes (no brush collision yet) --- */
+	cm.brushsides    = Hunk_Alloc( BOX_SIDES   * sizeof( *cm.brushsides    ), h_high );
+	cm.numBrushSides = 0;
+	cm.brushes       = Hunk_Alloc( BOX_BRUSHES * sizeof( *cm.brushes       ), h_high );
+	cm.numBrushes    = 0;
+	cm.leafbrushes   = Hunk_Alloc( BOX_BRUSHES * sizeof( *cm.leafbrushes   ), h_high );
+	cm.numLeafBrushes = 0;
+
+	/* Leaf surfaces: lump 13 contains int32 TriangleSoup indices used by renderer;
+	   the collision model doesn't need them, but we need a valid array */
+	{
+		lump_t ls_l = CM_GetCod1Lump( base, COD1_LUMP_LEAFSURFACES );
+		CMod_LoadLeafSurfaces( &ls_l );
+	}
+
+	/* --- World submodel (index 0): large bounds encompassing the map --- */
+	cm.cmodels     = Hunk_Alloc( sizeof( *cm.cmodels ), h_high );
+	cm.numSubModels = 1;
+	/* Use root BSP node bounds (node 0 has world bounds) */
+	if ( cm.numNodes > 0 ) {
+		/* Nodes were loaded by CMod_LoadNodes into cm.nodes.
+		   Compute bounds by looking at all node bounding boxes.
+		   For simplicity use generous world bounds. */
+		for ( i = 0; i < 3; i++ ) {
+			cm.cmodels[0].mins[i] = -MAX_WORLD_COORD;
+			cm.cmodels[0].maxs[i] =  MAX_WORLD_COORD;
+		}
+	} else {
+		VectorSet( cm.cmodels[0].mins, -1, -1, -1 );
+		VectorSet( cm.cmodels[0].maxs,  1,  1,  1 );
+	}
+
+	/* --- Entity string (lump 29) --- */
+	entities_l = CM_GetCod1Lump( base, COD1_LUMP_ENTITIES );
+	CMod_LoadEntityString( &entities_l );
+
+	/* --- Visibility: skip CoD1 vis format, mark all clusters visible --- */
+	vis_l = CM_GetCod1Lump( base, COD1_LUMP_VISIBILITY );
+	if ( vis_l.filelen > 0 ) {
+		/* CoD1 vis format not yet parsed; fall back to all-visible */
+		visBuf = Hunk_Alloc( ( cm.numClusters + 31 ) & ~31, h_high );
+		Com_Memset( visBuf, 0xff, ( cm.numClusters + 31 ) & ~31 );
+		cm.clusterBytes = ( cm.numClusters + 7 ) & ~7;
+		cm.visibility   = visBuf;
+	} else {
+		CMod_LoadVisibility( &vis_l );   /* handles zero-length case */
+	}
+}
+
 //==================================================================
 
 unsigned CM_LumpChecksum(lump_t *lump) {
@@ -626,11 +767,15 @@ void CM_LoadMap( const char *name, qboolean clientload, int *checksum ) {
 		((int *)&header)[i] = LittleLong ( ((int *)&header)[i]);
 	}
 
-	if ( header.version != BSP_VERSION ) {
+	if ( header.version == COD1_BSP_VERSION ) {
+		/* CoD1 / CoDUO IBSP version 59 */
+		CM_LoadMapCod1( (byte *)buf.i, length, &last_checksum );
+		*checksum = last_checksum;
+		FS_FreeFile( buf.v );
+	} else if ( header.version != BSP_VERSION ) {
 		Com_Error (ERR_DROP, "CM_LoadMap: %s has wrong version number (%i should be %i)"
 		, name, header.version, BSP_VERSION );
-	}
-
+	} else {
 	cmod_base = (byte *)buf.i;
 
 	// load into heap
@@ -649,6 +794,7 @@ void CM_LoadMap( const char *name, qboolean clientload, int *checksum ) {
 
 	// we are NOT freeing the file, because it is cached for the ref
 	FS_FreeFile (buf.v);
+	}
 
 	CM_InitBoxHull ();
 
