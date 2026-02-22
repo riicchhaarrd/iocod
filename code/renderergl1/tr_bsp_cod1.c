@@ -77,45 +77,39 @@ static void R_LoadShadersCod1( const byte *base ) {
    Lightmaps – identical 128×128×3 format; reuse existing Q3 loader.
    ------------------------------------------------------------------------- */
 static void R_LoadLightmapsCod1( const byte *base ) {
-	lump_t l = R_GetCod1Lump( base, COD1_LUMP_LIGHTMAPS );
-	fileBase  = (byte *)base;
+	lump_t      l = R_GetCod1Lump( base, COD1_LUMP_LIGHTMAPS );
+	byte       *buf, *buf_p;
+	int         len, i, j;
+	static byte image[128 * 128 * 4];  /* static to avoid large stack */
+	byte        tmp[4];
 
-	/* The existing R_LoadLightmaps uses fileBase + l.fileofs */
-	/* We duplicate the logic inline to avoid touching non-static symbols */
-	{
-		byte  *buf, *buf_p;
-		int    len, i, j;
-		byte   image[128 * 128 * 4];
+	len = l.filelen;
+	if ( !len )
+		return;
+	buf = (byte *)base + l.fileofs;
 
-		len = l.filelen;
-		if ( !len )
-			return;
-		buf = (byte *)base + l.fileofs;
+	R_IssuePendingRenderCommands();
 
-		R_IssuePendingRenderCommands();
+	tr.numLightmaps = len / ( 128 * 128 * 3 );
+	if ( tr.numLightmaps == 1 )
+		tr.numLightmaps++;   /* Q3 hack: avoid fullbright on single-lightmap maps */
 
-		tr.numLightmaps = len / ( 128 * 128 * 3 );
-		if ( tr.numLightmaps == 1 )
-			tr.numLightmaps++;   /* Q3 hack: avoid fullbright bug */
+	if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 )
+		return;
 
-		if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 )
-			return;
-
-		tr.lightmaps = ri.Hunk_Alloc( tr.numLightmaps * sizeof( image_t * ), h_low );
-		for ( i = 0; i < tr.numLightmaps; i++ ) {
-			buf_p = buf + i * 128 * 128 * 3;
-			for ( j = 0; j < 128 * 128; j++ ) {
-				byte tmp[4];
-				tmp[0] = buf_p[j*3+0];
-				tmp[1] = buf_p[j*3+1];
-				tmp[2] = buf_p[j*3+2];
-				tmp[3] = 255;
-				R_ColorShiftLightingBytes( tmp, &image[j*4] );
-			}
-			tr.lightmaps[i] = R_CreateImage( va( "*lightmap%d", i ), image,
-				128, 128, IMGTYPE_COLORALPHA,
-				IMGFLAG_NOLIGHTSCALE | IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE, 0 );
+	tr.lightmaps = ri.Hunk_Alloc( tr.numLightmaps * sizeof( image_t * ), h_low );
+	for ( i = 0; i < tr.numLightmaps; i++ ) {
+		buf_p = buf + i * 128 * 128 * 3;
+		for ( j = 0; j < 128 * 128; j++ ) {
+			tmp[0] = buf_p[j*3+0];
+			tmp[1] = buf_p[j*3+1];
+			tmp[2] = buf_p[j*3+2];
+			tmp[3] = 255;
+			R_ColorShiftLightingBytes( tmp, &image[j*4] );
 		}
+		tr.lightmaps[i] = R_CreateImage( va( "*lightmap%d", i ), image,
+			128, 128, IMGTYPE_COLORALPHA,
+			IMGFLAG_NOLIGHTSCALE | IMGFLAG_NO_COMPRESSION | IMGFLAG_CLAMPTOEDGE, 0 );
 	}
 }
 
@@ -125,7 +119,7 @@ static void R_LoadLightmapsCod1( const byte *base ) {
 static void R_LoadPlanesCod1( const byte *base ) {
 	lump_t    l = R_GetCod1Lump( base, COD1_LUMP_PLANES );
 	dplane_t *in;
-	mplane_t *out;
+	cplane_t *out;
 	int        i, j, count;
 	int        bits;
 
