@@ -319,13 +319,34 @@ void G_RemapTeamShaders( void ) {
 #ifdef MISSIONPACK
 	char string[1024];
 	float f = level.time * 0.001;
+
+	G_Printf("G_RemapTeamShaders: Start\n");
+
+	if (!g_redteam.string) {
+		G_Printf("G_RemapTeamShaders: g_redteam.string is NULL\n");
+		return;
+	}
+	G_Printf("G_RemapTeamShaders: Formatting red team string: %s\n", g_redteam.string);
 	Com_sprintf( string, sizeof(string), "team_icon/%s_red", g_redteam.string );
+	
+	G_Printf("G_RemapTeamShaders: Adding red team remaps\n");
 	AddRemap("textures/ctf2/redteam01", string, f); 
 	AddRemap("textures/ctf2/redteam02", string, f); 
+
+	if (!g_blueteam.string) {
+		G_Printf("G_RemapTeamShaders: g_blueteam.string is NULL\n");
+		return;
+	}
+	G_Printf("G_RemapTeamShaders: Formatting blue team string: %s\n", g_blueteam.string);
 	Com_sprintf( string, sizeof(string), "team_icon/%s_blue", g_blueteam.string );
+	
+	G_Printf("G_RemapTeamShaders: Adding blue team remaps\n");
 	AddRemap("textures/ctf2/blueteam01", string, f); 
 	AddRemap("textures/ctf2/blueteam02", string, f); 
+
+	G_Printf("G_RemapTeamShaders: Building shader state config\n");
 	trap_SetConfigstring(CS_SHADERSTATE, BuildShaderStateConfig());
+	G_Printf("G_RemapTeamShaders: Done\n");
 #endif
 }
 
@@ -496,19 +517,27 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 
 	G_Printf ("-----------------------------------\n");
 
+	/*
 	if( g_gametype.integer == GT_SINGLE_PLAYER || trap_Cvar_VariableIntegerValue( "com_buildScript" ) ) {
+		G_Printf("Loading Podium Model...\n");
 		G_ModelIndex( SP_PODIUM_MODEL );
 	}
+	*/
 
 	if ( trap_Cvar_VariableIntegerValue( "bot_enable" ) ) {
+		G_Printf("BotAISetup...\n");
 		BotAISetup( restart );
+		G_Printf("BotAILoadMap...\n");
 		BotAILoadMap( restart );
+		G_Printf("G_InitBots...\n");
 		G_InitBots( restart );
 	}
-
-	G_RemapTeamShaders();
-
+	// G_Printf("G_RemapTeamShaders...\n");
+	// G_RemapTeamShaders();
+	
+	G_Printf("trap_SetConfigstring( CS_INTERMISSION )...\n");
 	trap_SetConfigstring( CS_INTERMISSION, "" );
+	G_Printf("G_InitGame Done.\n");
 }
 
 
