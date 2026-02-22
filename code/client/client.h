@@ -348,6 +348,7 @@ typedef struct {
 	qhandle_t	charSetShader;
 	qhandle_t	whiteShader;
 	qhandle_t	consoleShader;
+	fontInfo_t	consoleFont;	/* CoD1 font used for console text */
 } clientStatic_t;
 
 extern	clientStatic_t		cls;

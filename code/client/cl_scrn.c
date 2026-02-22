@@ -158,31 +158,43 @@ static void SCR_DrawChar( int x, int y, float size, int ch ) {
 ** small chars are drawn at native screen resolution
 */
 void SCR_DrawSmallChar( int x, int y, int ch ) {
-	int row, col;
-	float frow, fcol;
-	float size;
+	glyphInfo_t *glyph;
+	float        scale, yadj, w, h;
+	int          row, col;
+	float        frow, fcol, size;
 
 	ch &= 255;
 
 	if ( ch == ' ' ) {
 		return;
 	}
-
 	if ( y < -g_smallchar_height ) {
 		return;
 	}
 
-	row = ch>>4;
-	col = ch&15;
+	/* Use the CoD1 font system when available */
+	glyph = &cls.consoleFont.glyphs[ch];
+	if ( cls.consoleFont.glyphScale > 0 && glyph->glyph && glyph->imageHeight > 0 ) {
+		scale = cls.consoleFont.glyphScale * g_smallchar_height;
+		yadj  = scale * glyph->top;
+		w     = glyph->imageWidth  * scale;
+		h     = glyph->imageHeight * scale;
+		re.DrawStretchPic( x, y - (int)yadj, w, h,
+		                   glyph->s, glyph->t, glyph->s2, glyph->t2,
+		                   glyph->glyph );
+		return;
+	}
 
-	frow = row*0.0625;
-	fcol = col*0.0625;
-	size = 0.0625;
-
+	/* Fallback: Q3 charset grid */
+	row  = ch >> 4;
+	col  = ch & 15;
+	frow = row  * 0.0625f;
+	fcol = col  * 0.0625f;
+	size = 0.0625f;
 	re.DrawStretchPic( x, y, g_smallchar_width, g_smallchar_height,
-					   fcol, frow, 
-					   fcol + size, frow + size, 
-					   cls.charSetShader );
+	                   fcol, frow,
+	                   fcol + size, frow + size,
+	                   cls.charSetShader );
 }
 
 

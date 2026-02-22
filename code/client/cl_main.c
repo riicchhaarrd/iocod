@@ -3175,6 +3175,8 @@ void CL_InitRenderer( void ) {
 	cls.charSetShader = re.RegisterShader( "gfx/2d/bigchars" );
 	cls.whiteShader = re.RegisterShader( "white" );
 	cls.consoleShader = re.RegisterShader( "console" );
+	Com_Memset( &cls.consoleFont, 0, sizeof( cls.consoleFont ) );
+	re.RegisterFont( "fonts/fontImage", 16, &cls.consoleFont );
 	g_console_field_width = cls.glconfig.vidWidth / g_smallchar_width - 2;
 	g_consoleField.widthInChars = g_console_field_width;
 }

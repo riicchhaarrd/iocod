@@ -267,7 +267,9 @@ int Text_Width(const char *text, float scale, int limit) {
 	float out;
 	glyphInfo_t *glyph;
 	float useScale;
-	const char *s = text;
+	const char *s;
+	if (text && text[0] == '@') text = Localize_GetString(text + 1);
+	s = text;
 	fontInfo_t *font = &uiInfo.uiDC.Assets.textFont;
 	if (scale <= ui_smallFont.value) {
 		font = &uiInfo.uiDC.Assets.smallFont;
@@ -302,7 +304,9 @@ int Text_Height(const char *text, float scale, int limit) {
 	float max;
 	glyphInfo_t *glyph;
 	float useScale;
-	const char *s = text;
+	const char *s;
+	if (text && text[0] == '@') text = Localize_GetString(text + 1);
+	s = text;
 	fontInfo_t *font = &uiInfo.uiDC.Assets.textFont;
 	if (scale <= ui_smallFont.value) {
 		font = &uiInfo.uiDC.Assets.smallFont;
@@ -348,6 +352,7 @@ void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, f
 	glyphInfo_t *glyph;
 	float useScale;
 	fontInfo_t *font = &uiInfo.uiDC.Assets.textFont;
+	if (text && text[0] == '@') text = Localize_GetString(text + 1);
 	if (scale <= ui_smallFont.value) {
 		font = &uiInfo.uiDC.Assets.smallFont;
 	} else if (scale >= ui_bigFont.value) {
@@ -5147,7 +5152,8 @@ void _UI_Init( qboolean inGameLoad ) {
 	Init_Display(&uiInfo.uiDC);
 
 	String_Init();
-  
+	Localize_Init();
+
 	uiInfo.uiDC.cursor	= trap_R_RegisterShaderNoMip( "menu/art/3_cursor2" );
 	uiInfo.uiDC.whiteShader = trap_R_RegisterShaderNoMip( "white" );
 

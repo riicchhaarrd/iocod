@@ -80,6 +80,7 @@ if(BUILD_STANDALONE)
         ${SOURCE_DIR}/ui/ui_gameinfo.c
         ${SOURCE_DIR}/ui/ui_players.c
         ${SOURCE_DIR}/ui/ui_shared.c
+        ${SOURCE_DIR}/ui/ui_localize.c
         ${SOURCE_DIR}/game/bg_misc.c
         ${SOURCE_DIR}/game/bg_lib.c
     )

@@ -1133,6 +1133,10 @@ typedef struct postGameInfo_s {
 	int baseScore;
 } postGameInfo_t;
 
-
+//
+// ui_localize.c
+//
+void        Localize_Init(void);
+const char *Localize_GetString(const char *key);
 
 #endif
