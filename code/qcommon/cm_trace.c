@@ -674,7 +674,17 @@ void CM_TraceThroughLeaf( traceWork_t *tw, cLeaf_t *leaf ) {
 
 	// trace line against all brushes in the leaf
 	for ( k = 0 ; k < leaf->numLeafBrushes ; k++ ) {
+		if ( leaf->firstLeafBrush + k >= cm.numLeafBrushes ) {
+			Com_DPrintf( "CM_TraceThroughLeaf: leafbrush %i out of range (%i)\n",
+				leaf->firstLeafBrush + k, cm.numLeafBrushes );
+			break;
+		}
 		brushnum = cm.leafbrushes[leaf->firstLeafBrush+k];
+		if ( brushnum < 0 || brushnum >= cm.numBrushes ) {
+			Com_DPrintf( "CM_TraceThroughLeaf: brush %i out of range (%i)\n",
+				brushnum, cm.numBrushes );
+			continue;
+		}
 
 		b = &cm.brushes[brushnum];
 		if ( b->checkcount == cm.checkcount ) {

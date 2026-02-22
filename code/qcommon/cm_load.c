@@ -773,12 +773,10 @@ void CMod_LoadSubmodelsCod1( lump_t *l ) {
 			indexes[j] = LittleLong( in->firstBrush ) + j;
 		}
 
-		out->leaf.numLeafSurfaces = LittleLong( in->numSurfaces );
-		indexes = Hunk_Alloc( out->leaf.numLeafSurfaces * 4, h_high );
-		out->leaf.firstLeafSurface = indexes - cm.leafsurfaces;
-		for ( j = 0 ; j < out->leaf.numLeafSurfaces ; j++ ) {
-			indexes[j] = LittleLong( in->firstSurface ) + j;
-		}
+		/* CoD1: cm.surfaces is never allocated (rendering uses TriangleSoups,
+		   not Q3 bezier patches). CM_TraceThroughLeaf must not visit surfaces. */
+		out->leaf.numLeafSurfaces  = 0;
+		out->leaf.firstLeafSurface = 0;
 	}
 }
 
@@ -859,6 +857,20 @@ static void CM_LoadMapCod1( const byte *base, int length, int *checksum ) {
 	/* --- Entity string (lump 29) --- */
 	entities_l = CM_GetCod1Lump( base, COD1_LUMP_ENTITIES );
 	CMod_LoadEntityString( &entities_l );
+
+	/* --- Stats --- */
+	{
+		int leavesWithBrushes = 0, totalLeafBrushRefs = 0;
+		int i;
+		for ( i = 0; i < cm.numLeafs; i++ ) {
+			if ( cm.leafs[i].numLeafBrushes > 0 ) leavesWithBrushes++;
+			totalLeafBrushRefs += cm.leafs[i].numLeafBrushes;
+		}
+		Com_Printf( "CoD1 CM: %d leafs (%d with brushes, %d total leaf-brush refs), "
+			"%d brushes, %d brushsides, %d planes\n",
+			cm.numLeafs, leavesWithBrushes, totalLeafBrushRefs,
+			cm.numBrushes, cm.numBrushSides, cm.numPlanes );
+	}
 
 	/* --- Visibility: skip CoD1 vis format, mark all clusters visible --- */
 	vis_l = CM_GetCod1Lump( base, COD1_LUMP_VISIBILITY );
