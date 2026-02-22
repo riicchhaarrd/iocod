@@ -181,6 +181,14 @@ void SP_team_neutralobelisk( gentity_t *ent );
 #endif
 void SP_item_botroam( gentity_t *ent ) { }
 
+// CoD compatibility
+void SP_cod_trigger_damage( gentity_t *ent ) {
+	if (!ent->health) {
+		ent->health = 1;
+	}
+	SP_func_button(ent);
+}
+
 spawn_t	spawns[] = {
 	// info entities don't do anything at all, but provide positional
 	// information for things controlled by other processes
@@ -254,6 +262,15 @@ spawn_t	spawns[] = {
 #endif
 	{"item_botroam", SP_item_botroam},
 
+	// CoD mappings
+	{"script_brushmodel", SP_func_static},
+	{"script_model", SP_misc_model},
+	{"script_origin", SP_info_notnull},
+	{"trigger_damage", SP_cod_trigger_damage},
+	{"trigger_use", SP_func_button},
+	{"trigger_lookat", SP_info_null},
+	{"misc_mg42", SP_misc_model},
+
 	{NULL, 0}
 };
 
@@ -290,6 +307,20 @@ qboolean G_CallSpawn( gentity_t *ent ) {
 			return qtrue;
 		}
 	}
+
+	// CoD Prefix Fallbacks
+	if ( !strncmp( ent->classname, "actor_", 6 ) ||
+		 !strncmp( ent->classname, "weapon_", 7 ) ||
+		 !strncmp( ent->classname, "node_", 5 ) ) {
+		// Try to spawn as a model if it has one, otherwise just placeholder
+		if ( ent->model && ent->model[0] ) {
+			 SP_misc_model( ent );
+		} else {
+			 SP_info_null( ent );
+		}
+		return qtrue;
+	}
+
 	G_Printf ("%s doesn't have a spawn function\n", ent->classname);
 	return qfalse;
 }
