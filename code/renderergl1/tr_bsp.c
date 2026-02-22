@@ -1797,6 +1797,8 @@ void RE_LoadWorldMap( const char *name ) {
 	} buffer;
 	byte		*startMarker;
 
+    ri.Printf(PRINT_ALL, "RE_LoadWorldMap: loading %s\n", name);
+
 	if ( tr.worldMapLoaded ) {
 		ri.Error( ERR_DROP, "ERROR: attempted to redundantly load world map" );
 	}
@@ -1834,10 +1836,13 @@ void RE_LoadWorldMap( const char *name ) {
 	fileBase = (byte *)header;
 
 	i = LittleLong (header->version);
-	if ( i != BSP_VERSION ) {
+	if ( i != BSP_VERSION && i != 59 ) {
 		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)", 
 			name, i, BSP_VERSION);
 	}
+    if ( i == 59 ) {
+        ri.Printf(PRINT_ALL, "CoD1 BSP detected\n");
+    }
 
 	// swap all the lumps
 	for (i=0 ; i<sizeof(dheader_t)/4 ; i++) {
