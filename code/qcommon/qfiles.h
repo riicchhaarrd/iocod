@@ -503,22 +503,40 @@ typedef struct {
     cod1_lump_t    lumps[COD1_HEADER_LUMPS];
 } cod1_dheader_t;
 
-/* CoD1 lump indices */
-#define COD1_LUMP_MATERIALS     0
-#define COD1_LUMP_LIGHTMAPS     1
-#define COD1_LUMP_PLANES        2
-#define COD1_LUMP_BRUSHSIDES    3
-#define COD1_LUMP_BRUSHES       4
-#define COD1_LUMP_TRIANGLESOUPS 6
-#define COD1_LUMP_VERTICES      7
-#define COD1_LUMP_TRIANGLES     8
-#define COD1_LUMP_LEAFSURFACES  13  /* unused in V59 (cells-based rendering); small/empty */
-#define COD1_LUMP_BSPNODES      20
-#define COD1_LUMP_BSPLEAFS      21
-#define COD1_LUMP_LEAFBRUSHES   22
-#define COD1_LUMP_VISIBILITY    28  /* was wrong (26 = collision tris); 28 = real vis data */
-#define COD1_LUMP_MODELS        27
-#define COD1_LUMP_ENTITIES      29
+/* CoD1 (V59) lump physical indices.
+ *
+ * The bsp_format.h reference tool maps from V59 physical slots to CoD2 canonical
+ * indices. Retail CoD1 BSPs have one EXTRA slot at position 19 (unknown/padding)
+ * that the reference tool does not account for, shifting BSP/collision lumps by +1.
+ *
+ * Slots 0-18 and 27-29 match the reference exactly (verified empirically).
+ * Slots 19-26 are each +1 relative to the reference mapping.
+ */
+#define COD1_LUMP_MATERIALS        0
+#define COD1_LUMP_LIGHTMAPS        1
+#define COD1_LUMP_PLANES           2
+#define COD1_LUMP_BRUSHSIDES       3
+#define COD1_LUMP_BRUSHES          4
+/* 5 = empty/Fogs */
+#define COD1_LUMP_TRIANGLESOUPS    6   /* DiskTriangleSoup */
+#define COD1_LUMP_VERTICES         7   /* DiskGfxVertexV59 (44 bytes) */
+#define COD1_LUMP_TRIANGLES        8   /* u16 draw indices */
+/* 9=CullGroups 10=CullGroupIndices 11=PortalVerts 12=Occluders 13=OccluderPlanes */
+/* 14=OccluderEdges 15=OccluderIndices 16=AabbTrees 17=Cells 18=Portals */
+/* 19 = unknown extra slot (retail CoD1 only) */
+#define COD1_LUMP_BSPNODES         20  /* dnode_t (36 bytes) */
+#define COD1_LUMP_BSPLEAFS         21  /* cod1_dleaf_t (36 bytes) */
+#define COD1_LUMP_LEAFBRUSHES      22  /* s32 brush indices (4 bytes each) */
+#define COD1_LUMP_LEAFSURFACES     23  /* s32 face indices  (4 bytes each) */
+#define COD1_LUMP_COLLISIONEDGES   24  /* u32 (4 bytes each) */
+#define COD1_LUMP_COLLISIONAABBS   25  /* cod1_collision_leaf_t (16 bytes) */
+#define COD1_LUMP_COLLISIONVERTS   26  /* cod1_collision_vert_t = vec3 (12 bytes) */
+/* CollisionTris (u16 vertex indices) not a standalone lump in retail CoD1 BSPs;
+   triangle indices are packed into the CollisionVerts lump after the vertex data,
+   or the DiskCollisionLeafV59::firstTriIndex references the CollisionVerts lump. */
+#define COD1_LUMP_MODELS           27  /* cod1_dmodel_t */
+#define COD1_LUMP_VISIBILITY       28
+#define COD1_LUMP_ENTITIES         29
 
 /*
  * CoD1 material entry - 72 bytes total, same as Q3 dshader_t.
@@ -559,14 +577,33 @@ typedef struct {
 typedef struct {
     int cluster;           /* -1 = solid */
     int area;
-    int firstLeafSurface;  /* index into leaf-surface index array */
-    int numLeafSurfaces;   /* 0 in V59; rendering uses cells, not BSP leaves */
-    int firstLeafBrush;    /* index into leaf-brush index array (lump 22) */
+    int firstLeafSurface;  /* index into leaf-surface index array (lump 22) */
+    int numLeafSurfaces;   /* TriangleSoup face count; not used for CM collision */
+    int firstLeafBrush;    /* index into leaf-brush index array (lump 21) */
     int numLeafBrushes;
     int cellNum;           /* portal cell index */
     int firstLightIndex;
     int numLights;
 } cod1_dleaf_t;
+
+/* CoD1 (V59) collision vertex - 12 bytes, just xyz (no checkStamp like CoD2) */
+typedef struct {
+    float xyz[3];
+} cod1_collision_vert_t;
+
+/* CoD1 (V59) collision leaf - 16 bytes (lump 24).
+   Groups a set of collision triangles and their local vertices.
+   triIndexCount u16 triangle-vertex indices start at firstTriIndex in lump 26.
+   Each triangle is 3 consecutive u16 vertex indices into the local vertex list
+   starting at firstVertex in lump 25. */
+typedef struct {
+    unsigned short materialIndex;
+    unsigned short flags;
+    unsigned short vertexCount;
+    unsigned short triIndexCount;   /* must be divisible by 3 */
+    unsigned int   firstVertex;     /* index into lump 25 */
+    unsigned int   firstTriIndex;   /* index into lump 26 */
+} cod1_collision_leaf_t;
 
 typedef struct {
 	float		mins[3], maxs[3];
