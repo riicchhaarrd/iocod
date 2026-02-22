@@ -778,6 +778,10 @@ static void SV_SendClientGameState( client_t *client ) {
 	MSG_WriteLong( &msg, sv.checksumFeed);
 
 	// deliver this to the client
+	if ( msg.overflowed ) {
+		Com_Error( ERR_DROP, "SV_SendClientGameState: gamestate overflowed (%d bytes max %d); "
+			"increase MAX_MSGLEN or reduce entity/configstring count", msg.cursize, MAX_MSGLEN );
+	}
 	SV_SendMessageToClient( &msg, client );
 }
 
