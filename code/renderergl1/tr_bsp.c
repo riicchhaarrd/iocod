@@ -97,7 +97,7 @@ R_ColorShiftLightingBytes
 
 ===============
 */
-static	void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
+void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
 	int		shift, r, g, b;
 
 	// shift the color data based on overbright range
@@ -1344,7 +1344,7 @@ static	void R_LoadSubmodels( lump_t *l ) {
 R_SetParent
 =================
 */
-static	void R_SetParent (mnode_t *node, mnode_t *parent)
+void R_SetParent (mnode_t *node, mnode_t *parent)
 {
 	node->parent = parent;
 	if (node->contents != -1)
@@ -1836,33 +1836,37 @@ void RE_LoadWorldMap( const char *name ) {
 	fileBase = (byte *)header;
 
 	i = LittleLong (header->version);
-	if ( i != BSP_VERSION && i != 59 ) {
-		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)", 
-			name, i, BSP_VERSION);
-	}
-    if ( i == 59 ) {
-        ri.Printf(PRINT_ALL, "CoD1 BSP detected\n");
-    }
 
-	// swap all the lumps
-	for (i=0 ; i<sizeof(dheader_t)/4 ; i++) {
-		((int *)header)[i] = LittleLong ( ((int *)header)[i]);
-	}
+	if ( i == COD1_BSP_VERSION ) {
+		/* CoD1 / CoDUO IBSP version 59 */
+		R_LoadCod1WorldMap( buffer.b );
+		s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
+	} else {
+		if ( i != BSP_VERSION ) {
+			ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)",
+				name, i, BSP_VERSION);
+		}
 
-	// load into heap
-	R_LoadShaders( &header->lumps[LUMP_SHADERS] );
-	R_LoadLightmaps( &header->lumps[LUMP_LIGHTMAPS] );
-	R_LoadPlanes (&header->lumps[LUMP_PLANES]);
-	R_LoadFogs( &header->lumps[LUMP_FOGS], &header->lumps[LUMP_BRUSHES], &header->lumps[LUMP_BRUSHSIDES] );
-	R_LoadSurfaces( &header->lumps[LUMP_SURFACES], &header->lumps[LUMP_DRAWVERTS], &header->lumps[LUMP_DRAWINDEXES] );
-	R_LoadMarksurfaces (&header->lumps[LUMP_LEAFSURFACES]);
-	R_LoadNodesAndLeafs (&header->lumps[LUMP_NODES], &header->lumps[LUMP_LEAFS]);
-	R_LoadSubmodels (&header->lumps[LUMP_MODELS]);
-	R_LoadVisibility( &header->lumps[LUMP_VISIBILITY] );
-	R_LoadEntities( &header->lumps[LUMP_ENTITIES] );
-	R_LoadLightGrid( &header->lumps[LUMP_LIGHTGRID] );
+		// swap all the lumps
+		for (i=0 ; i<sizeof(dheader_t)/4 ; i++) {
+			((int *)header)[i] = LittleLong ( ((int *)header)[i]);
+		}
 
-	s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
+		// load into heap
+		R_LoadShaders( &header->lumps[LUMP_SHADERS] );
+		R_LoadLightmaps( &header->lumps[LUMP_LIGHTMAPS] );
+		R_LoadPlanes (&header->lumps[LUMP_PLANES]);
+		R_LoadFogs( &header->lumps[LUMP_FOGS], &header->lumps[LUMP_BRUSHES], &header->lumps[LUMP_BRUSHSIDES] );
+		R_LoadSurfaces( &header->lumps[LUMP_SURFACES], &header->lumps[LUMP_DRAWVERTS], &header->lumps[LUMP_DRAWINDEXES] );
+		R_LoadMarksurfaces (&header->lumps[LUMP_LEAFSURFACES]);
+		R_LoadNodesAndLeafs (&header->lumps[LUMP_NODES], &header->lumps[LUMP_LEAFS]);
+		R_LoadSubmodels (&header->lumps[LUMP_MODELS]);
+		R_LoadVisibility( &header->lumps[LUMP_VISIBILITY] );
+		R_LoadEntities( &header->lumps[LUMP_ENTITIES] );
+		R_LoadLightGrid( &header->lumps[LUMP_LIGHTGRID] );
+
+		s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
+	} /* end Q3 BSP path */
 
 	// only set tr.world now that we know the entire level has loaded properly
 	tr.world = &s_worldData;

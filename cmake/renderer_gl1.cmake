@@ -10,6 +10,7 @@ set(RENDERER_GL1_SOURCES
     ${SOURCE_DIR}/renderergl1/tr_animation.c
     ${SOURCE_DIR}/renderergl1/tr_backend.c
     ${SOURCE_DIR}/renderergl1/tr_bsp.c
+    ${SOURCE_DIR}/renderergl1/tr_bsp_cod1.c
     ${SOURCE_DIR}/renderergl1/tr_cmds.c
     ${SOURCE_DIR}/renderergl1/tr_curve.c
     ${SOURCE_DIR}/renderergl1/tr_flares.c
