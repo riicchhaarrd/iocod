@@ -1790,8 +1790,9 @@ int BotSetupGoalAI(void)
 	itemconfig = LoadItemConfig(filename);
 	if (!itemconfig)
 	{
-		botimport.Print(PRT_FATAL, "couldn't load item config\n");
-		return BLERR_CANNOTLOADITEMCONFIG;
+		botimport.Print(PRT_WARNING, "couldn't load item config\n");
+		// return BLERR_CANNOTLOADITEMCONFIG;
+        return BLERR_NOERROR;
 	} //end if
 	//
 	droppedweight = LibVar("droppedweight", "1000");

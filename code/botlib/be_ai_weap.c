@@ -497,8 +497,9 @@ int BotSetupWeaponAI(void)
 	weaponconfig = LoadWeaponConfig(file);
 	if (!weaponconfig)
 	{
-		botimport.Print(PRT_FATAL, "couldn't load the weapon config\n");
-		return BLERR_CANNOTLOADWEAPONCONFIG;
+		botimport.Print(PRT_WARNING, "couldn't load the weapon config\n");
+		// return BLERR_CANNOTLOADWEAPONCONFIG;
+        return BLERR_NOERROR; // Allow continuing without weapon config
 	} //end if
 
 #ifdef DEBUG_AI_WEAP
