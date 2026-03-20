@@ -53,6 +53,9 @@ kbutton_t	in_strafe, in_speed;
 kbutton_t	in_up, in_down;
 kbutton_t	in_reload;
 kbutton_t	in_melee;
+kbutton_t	in_ads;
+kbutton_t	in_leanleft;
+kbutton_t	in_leanright;
 
 #ifdef USE_VOIP
 kbutton_t	in_voiprecord;
@@ -223,6 +226,14 @@ void IN_ReloadUp(void) {IN_KeyUp(&in_reload);}
 void IN_MeleeDown(void) {IN_KeyDown(&in_melee);}
 void IN_MeleeUp(void)   {IN_KeyUp(&in_melee);}
 
+void IN_AdsDown(void) {IN_KeyDown(&in_ads);}
+void IN_AdsUp(void)   {IN_KeyUp(&in_ads);}
+
+void IN_LeanLeftDown(void)  {IN_KeyDown(&in_leanleft);}
+void IN_LeanLeftUp(void)    {IN_KeyUp(&in_leanleft);}
+void IN_LeanRightDown(void) {IN_KeyDown(&in_leanright);}
+void IN_LeanRightUp(void)   {IN_KeyUp(&in_leanright);}
+
 void IN_SpeedDown(void) {IN_KeyDown(&in_speed);}
 void IN_SpeedUp(void) {IN_KeyUp(&in_speed);}
 void IN_StrafeDown(void) {IN_KeyDown(&in_strafe);}
@@ -331,6 +342,40 @@ void IN_GoStandUp(void) {
 	IN_KeyUp(&in_buttons[13]);  // BUTTON_STAND
 	// Also release jump key if we triggered it
 	IN_UpUp();
+}
+
+// CoD1: lowerstance — cycle standing→crouch→prone
+void IN_LowerStance( void ) {
+	qboolean isProne  = ( cl.snap.valid && (cl.snap.ps.pm_flags & PMF_PRONE)  ) ? qtrue : qfalse;
+	qboolean isDucked = ( cl.snap.valid && (cl.snap.ps.pm_flags & PMF_DUCKED) ) ? qtrue : qfalse;
+
+	if ( isProne ) {
+		/* already prone, can't go lower */
+		return;
+	} else if ( isDucked ) {
+		/* crouched → prone */
+		IN_GoProne();
+	} else {
+		/* standing → crouch */
+		IN_GoCrouch();
+	}
+}
+
+// CoD1: raisestance — cycle prone→crouch→standing
+void IN_RaiseStance( void ) {
+	qboolean isProne  = ( cl.snap.valid && (cl.snap.ps.pm_flags & PMF_PRONE)  ) ? qtrue : qfalse;
+	qboolean isDucked = ( cl.snap.valid && (cl.snap.ps.pm_flags & PMF_DUCKED) ) ? qtrue : qfalse;
+
+	if ( isProne ) {
+		/* prone → crouch */
+		IN_GoCrouch();
+	} else if ( isDucked ) {
+		/* crouched → standing */
+		IN_KeyUp( &in_buttons[11] ); /* release BUTTON_CROUCH */
+		IN_KeyUp( &in_buttons[12] ); /* release BUTTON_PRONE */
+		in_buttons[13].wasPressed = qtrue; /* one-shot BUTTON_STAND */
+	}
+	/* already standing — do nothing */
 }
 
 void IN_CenterView (void) {
@@ -612,6 +657,21 @@ void CL_CmdButtons( usercmd_t *cmd ) {
 		cmd->buttons |= BUTTON_MELEE;
 	}
 	in_melee.wasPressed = qfalse;
+
+	if ( in_ads.active || in_ads.wasPressed ) {
+		cmd->buttons |= BUTTON_ADS;
+	}
+	in_ads.wasPressed = qfalse;
+
+	if ( in_leanleft.active || in_leanleft.wasPressed ) {
+		cmd->buttons |= BUTTON_LEAN_LEFT;
+	}
+	in_leanleft.wasPressed = qfalse;
+
+	if ( in_leanright.active || in_leanright.wasPressed ) {
+		cmd->buttons |= BUTTON_LEAN_RIGHT;
+	}
+	in_leanright.wasPressed = qfalse;
 
 	if ( Key_GetCatcher( ) ) {
 		cmd->buttons |= BUTTON_TALK;
@@ -1070,6 +1130,12 @@ void CL_InitInput( void ) {
 	Cmd_AddCommand ("-reload", IN_ReloadUp);
 	Cmd_AddCommand ("+melee", IN_MeleeDown);
 	Cmd_AddCommand ("-melee", IN_MeleeUp);
+	Cmd_AddCommand ("+ads", IN_AdsDown);
+	Cmd_AddCommand ("-ads", IN_AdsUp);
+	Cmd_AddCommand ("+leanleft", IN_LeanLeftDown);
+	Cmd_AddCommand ("-leanleft", IN_LeanLeftUp);
+	Cmd_AddCommand ("+leanright", IN_LeanRightDown);
+	Cmd_AddCommand ("-leanright", IN_LeanRightUp);
 	Cmd_AddCommand ("+activate", IN_Button2Down);	// CoD1: +activate = use/interact
 	Cmd_AddCommand ("-activate", IN_Button2Up);
 	Cmd_AddCommand ("+mlook", IN_MLookDown);
@@ -1084,6 +1150,10 @@ void CL_InitInput( void ) {
 	Cmd_AddCommand ("-goprone", IN_Button12Up);
 	Cmd_AddCommand ("gocrouch", IN_GoCrouch);  // sticky crouch stance
 	Cmd_AddCommand ("goprone", IN_GoProne);    // sticky prone stance
+	Cmd_AddCommand ("lowerstance", IN_LowerStance);  // CoD1: cycle down
+	Cmd_AddCommand ("raisestance", IN_RaiseStance);  // CoD1: cycle up
+	Cmd_AddCommand ("togglecrouch", IN_GoCrouch);    // CoD1 alias
+	Cmd_AddCommand ("toggleprone", IN_GoProne);      // CoD1 alias
 
 #ifdef USE_VOIP
 	Cmd_AddCommand ("+voiprecord", IN_VoipRecordDown);
@@ -1163,6 +1233,12 @@ void CL_ShutdownInput(void)
 	Cmd_RemoveCommand("-reload");
 	Cmd_RemoveCommand("+melee");
 	Cmd_RemoveCommand("-melee");
+	Cmd_RemoveCommand("+ads");
+	Cmd_RemoveCommand("-ads");
+	Cmd_RemoveCommand("+leanleft");
+	Cmd_RemoveCommand("-leanleft");
+	Cmd_RemoveCommand("+leanright");
+	Cmd_RemoveCommand("-leanright");
 	Cmd_RemoveCommand("+activate");
 	Cmd_RemoveCommand("-activate");
 	Cmd_RemoveCommand("+mlook");
@@ -1177,6 +1253,10 @@ void CL_ShutdownInput(void)
 	Cmd_RemoveCommand("-goprone");
 	Cmd_RemoveCommand("gocrouch");
 	Cmd_RemoveCommand("goprone");
+	Cmd_RemoveCommand("lowerstance");
+	Cmd_RemoveCommand("raisestance");
+	Cmd_RemoveCommand("togglecrouch");
+	Cmd_RemoveCommand("toggleprone");
 
 #ifdef USE_VOIP
 	Cmd_RemoveCommand("+voiprecord");

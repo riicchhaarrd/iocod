@@ -539,8 +539,11 @@ ClientRespawn
 ================
 */
 void ClientRespawn( gentity_t *ent ) {
-
+#ifndef STANDALONE
+	/* Q3: leave a corpse entity behind using the body queue */
 	CopyToBodyQue (ent);
+#endif
+	/* CoD1: player entity is the corpse; just respawn it in-place */
 	ClientSpawn(ent);
 }
 
@@ -1221,7 +1224,15 @@ void ClientSpawn(gentity_t *ent) {
 		}
 		client->currentWeaponSlot = -1;
 		client->spawnWeapon[0] = '\0';
+		client->cachedWeaponName[0] = '\0';
+		client->nextFireTime = 0;
+		client->nextMeleeTime = 0;
 	}
+	client->ps.leanf = 0.0f;
+	client->ps.landTime = 0;
+	client->ps.landSlowdown = 1.0f;
+	client->ps.shellshockTime = 0;
+	client->ps.shellshockDuration = 0;
 
 	// CoD1: health = max health exactly (no overheal)
 	ent->health = client->ps.stats[STAT_HEALTH] = client->ps.stats[STAT_MAX_HEALTH];
@@ -1274,6 +1285,7 @@ void ClientSpawn(gentity_t *ent) {
 #endif
 			// fire the targets of the spawn point
 			G_UseTargets(spawnPoint, ent);
+#ifndef STANDALONE
 			// select the highest weapon number available, after any spawn given items have fired
 			client->ps.weapon = 1;
 
@@ -1283,6 +1295,7 @@ void ClientSpawn(gentity_t *ent) {
 					break;
 				}
 			}
+#endif
 			// positively link the client, even if the command times are weird
 			VectorCopy(ent->client->ps.origin, ent->r.currentOrigin);
 
@@ -1350,11 +1363,12 @@ void ClientDisconnect( int clientNum ) {
 	}
 
 	// send effect if they were completely connected
-	if ( ent->client->pers.connected == CON_CONNECTED 
+	if ( ent->client->pers.connected == CON_CONNECTED
 		&& ent->client->sess.sessionTeam != TEAM_SPECTATOR ) {
 		tent = G_TempEntity( ent->client->ps.origin, EV_PLAYER_TELEPORT_OUT );
 		tent->s.clientNum = ent->s.clientNum;
 
+#ifndef STANDALONE
 		// They don't get to take powerups with them!
 		// Especially important for stuff like CTF flags
 		TossClientItems( ent );
@@ -1364,7 +1378,7 @@ void ClientDisconnect( int clientNum ) {
 			TossClientCubes( ent );
 		}
 #endif
-
+#endif /* !STANDALONE */
 	}
 
 	G_LogPrintf( "ClientDisconnect: %i\n", clientNum );

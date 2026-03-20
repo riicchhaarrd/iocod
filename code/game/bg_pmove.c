@@ -32,7 +32,12 @@ pml_t		pml;
 
 // movement parameters
 float	pm_stopspeed = 100.0f;
+#ifdef STANDALONE
+float	pm_duckScale = 0.65f;			// CoD1: crouch = 65% of standing speed
+float	pm_proneScale = 0.15f;			// CoD1: prone = 15% of standing speed
+#else
 float	pm_duckScale = 0.25f;
+#endif
 float	pm_swimScale = 0.50f;
 
 float	pm_accelerate = 9.0f;			// CoD1: 9.0 (Q3: 10.0)
@@ -956,12 +961,35 @@ static void PM_WalkMove( void ) {
 	wishspeed = VectorNormalize(wishdir);
 	wishspeed *= scale;
 
-	// clamp the speed lower if ducking
+	// clamp the speed lower if ducking or prone
+#ifdef STANDALONE
+	if ( pm->ps->pm_flags & PMF_PRONE ) {
+		if ( wishspeed > pm->ps->speed * pm_proneScale ) {
+			wishspeed = pm->ps->speed * pm_proneScale;
+		}
+	} else if ( pm->ps->pm_flags & PMF_DUCKED ) {
+		if ( wishspeed > pm->ps->speed * pm_duckScale ) {
+			wishspeed = pm->ps->speed * pm_duckScale;
+		}
+	}
+#else
 	if ( pm->ps->pm_flags & PMF_DUCKED ) {
 		if ( wishspeed > pm->ps->speed * pm_duckScale ) {
 			wishspeed = pm->ps->speed * pm_duckScale;
 		}
 	}
+#endif
+
+#ifdef STANDALONE
+	// CoD1: landing slowdown reduces speed after jumps
+	if ( pm->ps->landSlowdown < 1.0f && pm->ps->landSlowdown > 0.0f ) {
+		wishspeed *= pm->ps->landSlowdown;
+	}
+	// CoD1: shellshock reduces movement speed (ref: line 8202, * 0.4)
+	if ( pm->ps->shellshockTime > pm->cmd.serverTime ) {
+		wishspeed *= pm_shellshockScale;
+	}
+#endif
 
 	// clamp the speed lower if wading or walking on the bottom
 	if ( pm->waterlevel ) {
@@ -1753,7 +1781,21 @@ static void PM_CheckDuck (void)
 	if ( wantsProne ) {
 		pm->ps->pm_flags |= PMF_DUCKED;
 		pm->maxs[2] = PRONE_HEIGHT;
+#ifdef STANDALONE
+		/* CoD1: smooth viewheight transition to prone (~300ms) */
+		{
+			int target = PRONE_VIEWHEIGHT;
+			int diff = target - pm->ps->viewheight;
+			if ( diff ) {
+				int step = (int)( (float)abs(diff) * (float)pml.msec / 300.0f + 0.5f );
+				if ( step < 1 ) step = 1;
+				if ( diff > 0 ) pm->ps->viewheight += step > diff ? diff : step;
+				else            pm->ps->viewheight -= step > -diff ? -diff : step;
+			}
+		}
+#else
 		pm->ps->viewheight = PRONE_VIEWHEIGHT;
+#endif
 		return;
 	}
 
@@ -1774,10 +1816,37 @@ static void PM_CheckDuck (void)
 
 	if ( pm->ps->pm_flags & PMF_DUCKED ) {
 		pm->maxs[2] = CROUCH_HEIGHT;
+#ifdef STANDALONE
+		/* CoD1: smooth viewheight transition (~200ms lerp) */
+		{
+			int target = CROUCH_VIEWHEIGHT;
+			int diff = target - pm->ps->viewheight;
+			if ( diff ) {
+				int step = (int)( (float)abs(diff) * (float)pml.msec / 200.0f + 0.5f );
+				if ( step < 1 ) step = 1;
+				if ( diff > 0 ) pm->ps->viewheight += step > diff ? diff : step;
+				else            pm->ps->viewheight -= step > -diff ? -diff : step;
+			}
+		}
+#else
 		pm->ps->viewheight = CROUCH_VIEWHEIGHT;
+#endif
 	} else {
 		pm->maxs[2] = DEFAULT_HEIGHT;
+#ifdef STANDALONE
+		{
+			int target = DEFAULT_VIEWHEIGHT;
+			int diff = target - pm->ps->viewheight;
+			if ( diff ) {
+				int step = (int)( (float)abs(diff) * (float)pml.msec / 200.0f + 0.5f );
+				if ( step < 1 ) step = 1;
+				if ( diff > 0 ) pm->ps->viewheight += step > diff ? diff : step;
+				else            pm->ps->viewheight -= step > -diff ? -diff : step;
+			}
+		}
+#else
 		pm->ps->viewheight = DEFAULT_VIEWHEIGHT;
+#endif
 	}
 }
 
@@ -1785,6 +1854,173 @@ static void PM_CheckDuck (void)
 
 //===================================================================
 
+#ifdef STANDALONE
+/*
+===============
+PM_UpdateLean
+
+CoD1 lean system: Q/E keys tilt the view and offset the camera laterally.
+Reference: GAME_MP_.c PM_UpdateLean (lines 11821-12027)
+
+Lean button bits: 0x10 = left, 0x20 = right (byte 5 of usercmd = BUTTON_LEAN_LEFT/RIGHT)
+Lean fraction max: standing=0.25, crouching=0.5
+Lean speed: moving = pml.msec/350, not moving = pml.msec/280
+Lean offset: 16.0 units lateral, trace with 20.0 margin
+===============
+*/
+static void PM_UpdateLean( void )
+{
+	int		wantDir = 0;	/* -1 left, 0 center, +1 right */
+	float	maxLean, leanRate, target;
+	int		stance;
+
+	/* Read lean buttons */
+	if ( pm->cmd.buttons & BUTTON_LEAN_LEFT )  wantDir--;
+	if ( pm->cmd.buttons & BUTTON_LEAN_RIGHT ) wantDir++;
+
+	/* Can't lean while prone */
+	if ( pm->ps->pm_flags & PMF_PRONE ) wantDir = 0;
+
+	/* Can't lean while not on ground (unless already leaning) */
+	if ( pm->ps->groundEntityNum == ENTITYNUM_NONE && pm->ps->leanf == 0.0f )
+		wantDir = 0;
+
+	/* Stance determines max lean fraction (ref: lines 11921-11926) */
+	if ( pm->ps->pm_flags & PMF_DUCKED )
+		maxLean = 0.5f;		/* crouched: larger lean */
+	else
+		maxLean = 0.25f;	/* standing: smaller lean */
+
+	/* Lean rate depends on movement (ref: moving=pml[10]/350, still=pml[10]/280) */
+	{
+		vec3_t hVel;
+		float  speed;
+		VectorCopy( pm->ps->velocity, hVel );
+		hVel[2] = 0;
+		speed = VectorLength( hVel );
+		if ( speed > 10.0f )
+			leanRate = (float)pml.msec / 350.0f;
+		else
+			leanRate = (float)pml.msec / 280.0f;
+	}
+
+	target = (float)wantDir * maxLean;
+
+	if ( pm->ps->leanf < target ) {
+		pm->ps->leanf += leanRate;
+		if ( pm->ps->leanf > target ) pm->ps->leanf = target;
+	} else if ( pm->ps->leanf > target ) {
+		pm->ps->leanf -= leanRate;
+		if ( pm->ps->leanf < target ) pm->ps->leanf = target;
+	}
+
+	/* Clamp */
+	if ( pm->ps->leanf > maxLean )  pm->ps->leanf = maxLean;
+	if ( pm->ps->leanf < -maxLean ) pm->ps->leanf = -maxLean;
+}
+
+/*
+===============
+PM_UpdatePronePitch
+
+CoD1 prone view restrictions: when prone, the player's yaw turning is
+capped and pitch is restricted relative to the body direction.
+Reference: GAME_MP_.c PM_UpdatePronePitch (lines 12349-12450)
+  - Yaw cap: bg_prone_yawcap (typically ±85 degrees from body dir)
+  - Yaw rate: pml.msec * 55 / 1000 max delta per frame
+  - Pitch bounds: tighter than standing
+===============
+*/
+#define PRONE_YAW_CAP		85.0f	/* max yaw offset from body direction */
+#define PRONE_PITCH_MIN		-45.0f	/* can't look up too far while prone */
+#define PRONE_PITCH_MAX		45.0f	/* can't look down too far while prone */
+#define PRONE_YAW_RATE		55.0f	/* max yaw degrees per second body turn */
+
+static void PM_UpdatePronePitch( void )
+{
+	float	yawDelta, maxDelta;
+
+	if ( !( pm->ps->pm_flags & PMF_PRONE ) )
+		return;
+
+	/* Restrict pitch while prone (ref: PM_UpdatePronePitch pitch clamp) */
+	if ( pm->ps->viewangles[PITCH] > PRONE_PITCH_MAX )
+		pm->ps->viewangles[PITCH] = PRONE_PITCH_MAX;
+	if ( pm->ps->viewangles[PITCH] < PRONE_PITCH_MIN )
+		pm->ps->viewangles[PITCH] = PRONE_PITCH_MIN;
+
+	/* Restrict yaw turn rate while prone (ref: pml[9]*55 max delta, line 12234) */
+	maxDelta = PRONE_YAW_RATE * (float)pml.msec / 1000.0f;
+	yawDelta = AngleSubtract( pm->ps->viewangles[YAW],
+	                          pm->ps->movementDir * 45.0f ); /* rough body dir */
+	(void)yawDelta; /* yaw cap would need body direction tracking */
+	(void)maxDelta;
+
+	/* Note: full body-direction tracking requires a separate body yaw field
+	 * in playerState (ps->proneBodyYaw). For now, prone pitch restriction
+	 * is the primary gameplay effect. */
+}
+
+/*
+===============
+PM_LandingSlowdown
+
+CoD1 jump landing mechanic: when a player lands from a jump/fall, their
+speed is temporarily reduced. Discourages bunny hopping.
+
+Reference: GAME_MP_.c lines 9460-9500
+  stunTime = 35 * fallHeight + 500  (capped at 2000ms)
+  speedMult:
+    stunTime <= 500:  0.5
+    500 < stunTime < 1500:  0.5 - (stunTime-500)/1000 * 0.3
+    stunTime >= 1500: 0.2
+  High falls (vel < -600): 0.67 velocity multiplier applied directly
+===============
+*/
+static void PM_LandingSlowdown( void )
+{
+	/* Detect landing: was in air, now on ground */
+	if ( pml.previous_velocity[2] < -200.0f &&
+	     pm->ps->groundEntityNum != ENTITYNUM_NONE &&
+	     pm->ps->landTime < pm->cmd.serverTime - 100 ) {
+		float fallSpeed = -pml.previous_velocity[2];
+		int   stunTime;
+
+		/* High fall: direct velocity penalty (ref line 9461-9464) */
+		if ( fallSpeed > 600.0f ) {
+			pm->ps->velocity[0] *= 0.67f;
+			pm->ps->velocity[1] *= 0.67f;
+		}
+
+		/* Stun time formula: 35 * height_equiv + 500, cap 2000 (ref line 9468-9469) */
+		stunTime = (int)( 35.0f * ( fallSpeed / 20.0f ) ) + 500;
+		if ( stunTime > 2000 ) stunTime = 2000;
+
+		pm->ps->landTime = pm->cmd.serverTime;
+
+		/* Speed multiplier (ref lines 9474-9480) */
+		if ( stunTime <= 500 ) {
+			pm->ps->landSlowdown = 0.5f;
+		} else if ( stunTime < 1500 ) {
+			pm->ps->landSlowdown = 0.5f - (float)( stunTime - 500 ) / 1000.0f * 0.3f;
+		} else {
+			pm->ps->landSlowdown = 0.2f;
+		}
+	}
+
+	/* Recover from landing slowdown */
+	if ( pm->ps->landSlowdown < 1.0f ) {
+		int elapsed = pm->cmd.serverTime - pm->ps->landTime;
+		/* Stun recovers over its duration, linearly back to 1.0 */
+		if ( elapsed > 0 ) {
+			float recovery = (float)elapsed / 500.0f;
+			float target = pm->ps->landSlowdown + recovery;
+			if ( target > 1.0f ) target = 1.0f;
+			pm->ps->landSlowdown = target;
+		}
+	}
+}
+#endif /* STANDALONE */
 
 /*
 ===============
@@ -2103,6 +2339,12 @@ static void PM_Weapon( void ) {
 
 	pm->ps->weaponstate = WEAPON_FIRING;
 
+#ifdef STANDALONE
+	/* CoD1: weapon firing is handled by G_FireWeapon in g_weapon_cod1.c.
+	 * Skip the Q3 ammo decrement and EV_FIRE_WEAPON event entirely —
+	 * otherwise both systems fire simultaneously (double-fire bug). */
+	addTime = 100;	// keep weaponTime ticking so PM_Weapon doesn't re-enter
+#else
 	// check for out of ammo
 	if ( ! pm->ps->ammo[ pm->ps->weapon ] ) {
 		PM_AddEvent( EV_NOAMMO );
@@ -2117,11 +2359,9 @@ static void PM_Weapon( void ) {
 
 	// fire weapon
 	PM_AddEvent( EV_FIRE_WEAPON );
+#endif
 
-#ifdef STANDALONE
-	// CoD1: generic fire rate (weapon defs loaded client-side)
-	addTime = 100;	// default ~600 RPM, weapon-specific rates handled client-side
-#else
+#ifndef STANDALONE
 	switch( pm->ps->weapon ) {
 	default:
 	case WP_GAUNTLET:
@@ -2447,11 +2687,23 @@ void PmoveSingle (pmove_t *pmove) {
 	// set mins, maxs, and viewheight
 	PM_CheckDuck ();
 
+#ifdef STANDALONE
+	// CoD1: lean, prone pitch restriction
+	PM_UpdateLean();
+	PM_UpdatePronePitch();
+#endif
+
 	// ladder movement
 	PM_CheckLadder();
 
 	// set groundentity
 	PM_GroundTrace();
+
+#ifdef STANDALONE
+	// CoD1: landing slowdown — MUST be after PM_GroundTrace so
+	// groundEntityNum is current-frame when detecting landing
+	PM_LandingSlowdown();
+#endif
 
 	if ( pm->ps->pm_type == PM_DEAD ) {
 		PM_DeadMove ();

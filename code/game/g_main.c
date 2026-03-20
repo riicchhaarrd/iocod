@@ -499,8 +499,10 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	trap_LocateGameData( level.gentities, level.num_entities, sizeof( gentity_t ), 
 		&level.clients[0].ps, sizeof( level.clients[0] ) );
 
+#ifndef STANDALONE
 	// reserve some spots for dead player bodies
 	InitBodyQue();
+#endif
 
 	ClearRegisteredItems();
 
@@ -1350,12 +1352,17 @@ ScoreIsTied
 =============
 */
 qboolean ScoreIsTied( void ) {
+#ifdef STANDALONE
+	/* CoD1: no tie-delay logic — map exit is fully script-driven.
+	   Returning false lets timelimit function without sudden-death delay. */
+	return qfalse;
+#else
 	int		a, b;
 
 	if ( level.numPlayingClients < 2 ) {
 		return qfalse;
 	}
-	
+
 	if ( g_gametype.integer >= GT_TEAM ) {
 		return level.teamScores[TEAM_RED] == level.teamScores[TEAM_BLUE];
 	}
@@ -1364,6 +1371,7 @@ qboolean ScoreIsTied( void ) {
 	b = level.clients[level.sortedClients[1]].ps.persistant[PERS_SCORE];
 
 	return a == b;
+#endif
 }
 
 /*

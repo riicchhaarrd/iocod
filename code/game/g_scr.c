@@ -1040,7 +1040,36 @@ static qboolean G_Scr_EntityMatchesFilter( gentity_t *ent, const char *value, co
         return ent->model && !Q_stricmp( ent->model, value );
     }
 
-    return qfalse;
+    /* Arbitrary field: look it up on the entity's GSC object */
+    {
+        int  entNum;
+        char globalName[ 32 ];
+        int  topBefore;
+        qboolean match = qfalse;
+
+        if ( g_scrCtx && G_Scr_GetEntityNum( ent, &entNum ) ) {
+            G_Scr_GetEntityGlobalName( entNum, globalName, sizeof( globalName ) );
+            topBefore = gsc_top( g_scrCtx );
+            gsc_get_global( g_scrCtx, globalName );
+            if ( gsc_top( g_scrCtx ) > topBefore &&
+                 gsc_type( g_scrCtx, -1 ) == GSC_TYPE_OBJECT ) {
+                int entObjIdx = gsc_top( g_scrCtx ) - 1;
+                int top2 = gsc_top( g_scrCtx );
+                gsc_object_get_field( g_scrCtx, entObjIdx, key );
+                if ( gsc_top( g_scrCtx ) > top2 ) {
+                    int t = gsc_type( g_scrCtx, -1 );
+                    if ( t == GSC_TYPE_STRING || t == GSC_TYPE_INTERNED_STRING ) {
+                        const char *fv = gsc_to_string( g_scrCtx, -1 );
+                        match = ( fv && !Q_stricmp( fv, value ) );
+                    }
+                    gsc_pop( g_scrCtx, 1 );
+                }
+            }
+            if ( gsc_top( g_scrCtx ) > topBefore )
+                gsc_pop( g_scrCtx, gsc_top( g_scrCtx ) - topBefore );
+        }
+        return match;
+    }
 }
 
 static int GScr_Meth_GetName( gsc_Context *ctx )
@@ -1694,13 +1723,15 @@ static int GScr_Meth_UseButtonPressed( gsc_Context *ctx )
 
 static int GScr_Meth_MeleeButtonPressed( gsc_Context *ctx )
 {
-    return GScr_Meth_AttackButtonPressed( ctx );
+    gentity_t *ent = G_Scr_GetSelf( ctx );
+    gsc_add_bool( ctx, ent && ent->client && ( ent->client->buttons & BUTTON_MELEE ) );
+    return 1;
 }
 
 static int GScr_Meth_PlayerADS( gsc_Context *ctx )
 {
-    (void)ctx;
-    gsc_add_bool( ctx, qfalse );
+    gentity_t *ent = G_Scr_GetSelf( ctx );
+    gsc_add_bool( ctx, ent && ent->client && ( ent->client->buttons & ( BUTTON_ADS | BUTTON_WALKING ) ) );
     return 1;
 }
 
@@ -1895,6 +1926,60 @@ static int GScr_Meth_GiveStartAmmo( gsc_Context *ctx )
         ent->client->weaponSlots[slot].reserveAmmo = wd.startAmmo;
     }
     return 0;
+}
+
+/* self getFractionStartAmmo( weaponName ) — returns current ammo / startAmmo as float */
+static int GScr_Meth_GetFractionStartAmmo( gsc_Context *ctx )
+{
+    gentity_t  *ent = G_Scr_GetSelf( ctx );
+    const char *weapName;
+    int         slot;
+    weaponDef_t wd;
+
+    if ( !ent || !ent->client || gsc_numargs( ctx ) < 1 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    weapName = gsc_to_string( ctx, 0 );
+    slot = G_FindWeaponSlot( ent->client, weapName );
+    if ( slot < 0 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    if ( !BG_ParseWeaponDef( weapName, &wd ) || wd.startAmmo <= 0 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    gsc_add_float( ctx,
+        (float)ent->client->weaponSlots[slot].reserveAmmo / (float)wd.startAmmo );
+    return 1;
+}
+
+/* self getFractionMaxAmmo( weaponName ) — returns current ammo / maxAmmo as float */
+static int GScr_Meth_GetFractionMaxAmmo( gsc_Context *ctx )
+{
+    gentity_t  *ent = G_Scr_GetSelf( ctx );
+    const char *weapName;
+    int         slot;
+    weaponDef_t wd;
+
+    if ( !ent || !ent->client || gsc_numargs( ctx ) < 1 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    weapName = gsc_to_string( ctx, 0 );
+    slot = G_FindWeaponSlot( ent->client, weapName );
+    if ( slot < 0 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    if ( !BG_ParseWeaponDef( weapName, &wd ) || wd.maxAmmo <= 0 ) {
+        gsc_add_float( ctx, 1.0f );
+        return 1;
+    }
+    gsc_add_float( ctx,
+        (float)ent->client->weaponSlots[slot].reserveAmmo / (float)wd.maxAmmo );
+    return 1;
 }
 
 /* self setSpawnWeapon( weaponName ) — weapon to auto-switch to after spawn */
@@ -2108,6 +2193,19 @@ static int GScr_Meth_GetCurrentOffhand( gsc_Context *ctx )   { return G_Scr_Noop
 static int GScr_Meth_SwitchToOffhand( gsc_Context *ctx )     { return G_Scr_NoopReturn1( ctx ); }
 static int GScr_Meth_SetClientDvar( gsc_Context *ctx )       { return GScr_Meth_SetClientCvar( ctx ); }
 static int GScr_Meth_FreezeControls( gsc_Context *ctx )      { return G_Scr_NoopReturn0( ctx ); }
+static int GScr_Meth_Shellshock( gsc_Context *ctx )
+{
+    gentity_t *ent = G_Scr_GetSelf( ctx );
+    float      duration;
+
+    if ( !ent || !ent->client || gsc_numargs( ctx ) < 2 ) return 0;
+    /* arg 0: shellshock name (ignored for now, CoD1 has named presets) */
+    duration = gsc_to_float( ctx, 1 );
+    if ( duration < 0.0f ) duration = 0.0f;
+    ent->client->ps.shellshockDuration = (int)( duration * 1000.0f );
+    ent->client->ps.shellshockTime = level.time + ent->client->ps.shellshockDuration;
+    return 0;
+}
 static int GScr_Meth_DisableWeapon( gsc_Context *ctx )       { return G_Scr_NoopReturn0( ctx ); }
 static int GScr_Meth_EnableWeapon( gsc_Context *ctx )        { return G_Scr_NoopReturn0( ctx ); }
 static int GScr_Meth_SetEnterTime( gsc_Context *ctx )        { return G_Scr_NoopReturn0( ctx ); }
@@ -3989,6 +4087,8 @@ static void G_Scr_CreateGlobals( void )
     G_Scr_AddMethod( playerMethodsObj, "takeallweapons",        GScr_Meth_TakeAllWeapons );
     G_Scr_AddMethod( playerMethodsObj, "givemaxammo",           GScr_Meth_GiveMaxAmmo );
     G_Scr_AddMethod( playerMethodsObj, "givestartammo",         GScr_Meth_GiveStartAmmo );
+    G_Scr_AddMethod( playerMethodsObj, "getfractionstartammo",  GScr_Meth_GetFractionStartAmmo );
+    G_Scr_AddMethod( playerMethodsObj, "getfractionmaxammo",    GScr_Meth_GetFractionMaxAmmo );
     G_Scr_AddMethod( playerMethodsObj, "setspawnweapon",        GScr_Meth_SetSpawnWeapon );
     G_Scr_AddMethod( playerMethodsObj, "setweaponslotweapon",   GScr_Meth_SetWeaponSlotWeapon );
     G_Scr_AddMethod( playerMethodsObj, "setweaponslotammo",     GScr_Meth_SetWeaponSlotAmmo );
@@ -4004,6 +4104,7 @@ static void G_Scr_CreateGlobals( void )
     G_Scr_AddMethod( playerMethodsObj, "switchtooffhand",       GScr_Meth_SwitchToOffhand );
     G_Scr_AddMethod( playerMethodsObj, "setclientdvar",         GScr_Meth_SetClientDvar );
     G_Scr_AddMethod( playerMethodsObj, "freezecontrols",        GScr_Meth_FreezeControls );
+    G_Scr_AddMethod( playerMethodsObj, "shellshock",            GScr_Meth_Shellshock );
     G_Scr_AddMethod( playerMethodsObj, "disableweapon",         GScr_Meth_DisableWeapon );
     G_Scr_AddMethod( playerMethodsObj, "enableweapon",          GScr_Meth_EnableWeapon );
     G_Scr_AddMethod( playerMethodsObj, "setentertime",          GScr_Meth_SetEnterTime );
@@ -4458,6 +4559,66 @@ void G_Scr_EntitySpawned( gentity_t *ent )
 
     G_Scr_ClearEntityRuntimeState( entNum );
     G_Scr_CreateEntityObject( ent, qfalse );
+}
+
+/* Set arbitrary map entity key-value pairs (e.g. script_gameobjectname) as
+   string fields on the entity's GSC object.  Called from g_spawn.c after the
+   spawn function runs, while level.spawnVars[] is still populated.
+   Skips fields already reflected by G_Scr_SetEntityObjectFields. */
+void G_Scr_SetEntitySpawnVars( gentity_t *ent )
+{
+    char globalName[ 32 ];
+    int  topBefore, entObjIdx, entNum;
+    int  i;
+
+    /* Skip fields set by G_Scr_SetEntityObjectFields; proxy handles the rest */
+    static const char *knownFields[] = {
+        "classname", "origin", "angles", "model", "targetname", "target", NULL
+    };
+
+    if ( !g_scrActive || !g_scrCtx || !ent ) {
+        return;
+    }
+    if ( !G_Scr_GetEntityNum( ent, &entNum ) || entNum < MAX_CLIENTS ) {
+        return;
+    }
+    if ( !g_scrEntityObjAlive[ entNum ] ) {
+        return;
+    }
+
+    G_Scr_GetEntityGlobalName( entNum, globalName, sizeof( globalName ) );
+    topBefore = gsc_top( g_scrCtx );
+    gsc_get_global( g_scrCtx, globalName );
+    if ( gsc_top( g_scrCtx ) <= topBefore ||
+         gsc_type( g_scrCtx, -1 ) != GSC_TYPE_OBJECT ) {
+        if ( gsc_top( g_scrCtx ) > topBefore )
+            gsc_pop( g_scrCtx, 1 );
+        return;
+    }
+    entObjIdx = gsc_top( g_scrCtx ) - 1;
+
+    for ( i = 0; i < level.numSpawnVars; i++ ) {
+        const char *key   = level.spawnVars[i][0];
+        const char *value = level.spawnVars[i][1];
+        int k;
+        qboolean skip = qfalse;
+
+        if ( !key || !key[0] || !value ) {
+            continue;
+        }
+        for ( k = 0; knownFields[k]; k++ ) {
+            if ( !Q_stricmp( key, knownFields[k] ) ) {
+                skip = qtrue;
+                break;
+            }
+        }
+        if ( skip ) continue;
+
+        gsc_add_string( g_scrCtx, value );
+        gsc_object_set_field( g_scrCtx, entObjIdx, key );
+    }
+
+    gsc_pop( g_scrCtx, 1 );
 }
 
 void G_Scr_EntityFreed( gentity_t *ent )

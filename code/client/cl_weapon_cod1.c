@@ -93,6 +93,11 @@ typedef struct {
 
 static clWeapon_t cl_weapon;
 
+/* Pending weapon switch: stores next weapon while drop anim plays */
+static char  s_pendingWeapon[64];
+static int   s_pendingClipAmmo   = -1;
+static int   s_pendingReserveAmmo = -1;
+
 /* Track player state to detect spawns */
 static int  s_prevPmType  = -1;
 static int  s_spawnSerial =  0;
@@ -217,6 +222,30 @@ void CL_WeaponPickup( const char *name, int clipAmmo, int reserveAmmo )
 {
     if ( !name || !name[0] ) return;
 
+    /* "none" = holster current weapon */
+    if ( !Q_stricmp( name, "none" ) ) {
+        if ( cl_weapon.active && cl_weapon.anims[WA_DROP] ) {
+            SetAnim( WA_DROP );
+        } else {
+            Com_Memset( &cl_weapon, 0, sizeof(cl_weapon) );
+        }
+        s_pendingWeapon[0] = '\0';
+        return;
+    }
+
+    /* If already holding a different weapon, play drop first then switch */
+    if ( cl_weapon.active && Q_stricmp( cl_weapon.name, name ) != 0 ) {
+        /* Different weapon — queue the switch */
+        if ( cl_weapon.anims[WA_DROP] ) {
+            Q_strncpyz( s_pendingWeapon, name, sizeof(s_pendingWeapon) );
+            s_pendingClipAmmo    = clipAmmo;
+            s_pendingReserveAmmo = reserveAmmo;
+            SetAnim( WA_DROP );
+            return;
+        }
+        /* No drop anim, switch immediately */
+    }
+
     CL_GiveWeapon( name );
 
     /* Override ammo if server supplied explicit values */
@@ -224,6 +253,17 @@ void CL_WeaponPickup( const char *name, int clipAmmo, int reserveAmmo )
         if ( clipAmmo    >= 0 ) cl_weapon.clipAmmo    = clipAmmo;
         if ( reserveAmmo >= 0 ) cl_weapon.reserveAmmo = reserveAmmo;
     }
+}
+
+/*
+ * CL_WeaponAmmoSync -- server pushes authoritative ammo counts.
+ * Keeps client-side ammo in sync with server-side tracking.
+ */
+void CL_WeaponAmmoSync( int clipAmmo, int reserveAmmo )
+{
+    if ( !cl_weapon.active ) return;
+    if ( clipAmmo    >= 0 ) cl_weapon.clipAmmo    = clipAmmo;
+    if ( reserveAmmo >= 0 ) cl_weapon.reserveAmmo = reserveAmmo;
 }
 
 /* ===========================================================================
@@ -328,8 +368,8 @@ static void CL_WeaponThink( void )
     wantFire   = ( cmd->buttons & BUTTON_ATTACK  ) ? qtrue : qfalse;
     wantReload = ( cmd->buttons & BUTTON_RELOAD  ) ? qtrue : qfalse;
     wantMelee  = ( cmd->buttons & BUTTON_MELEE   ) ? qtrue : qfalse;
-    /* CoD1 ADS: bind mouse2 "toggle cl_run" → cl_run=0 → BUTTON_WALKING set */
-    wantAds    = ( cmd->buttons & BUTTON_WALKING ) ? qtrue : qfalse;
+    /* CoD1 ADS: either +ads button OR "toggle cl_run" (BUTTON_WALKING) */
+    wantAds    = ( cmd->buttons & ( BUTTON_ADS | BUTTON_WALKING ) ) ? qtrue : qfalse;
 
     /* ---- ADS fraction interpolation ---- */
     {
@@ -376,8 +416,20 @@ static void CL_WeaponThink( void )
         break;
 
     case WA_DROP:
-        if ( ElapsedSec() >= AnimDuration( WA_DROP ) )
+        if ( ElapsedSec() >= AnimDuration( WA_DROP ) ) {
             cl_weapon.active = qfalse;
+            /* If a weapon switch was pending, load the new weapon now */
+            if ( s_pendingWeapon[0] ) {
+                CL_GiveWeapon( s_pendingWeapon );
+                if ( cl_weapon.active ) {
+                    if ( s_pendingClipAmmo    >= 0 ) cl_weapon.clipAmmo    = s_pendingClipAmmo;
+                    if ( s_pendingReserveAmmo >= 0 ) cl_weapon.reserveAmmo = s_pendingReserveAmmo;
+                }
+                s_pendingWeapon[0]    = '\0';
+                s_pendingClipAmmo     = -1;
+                s_pendingReserveAmmo  = -1;
+            }
+        }
         break;
 
     case WA_IDLE:
@@ -439,6 +491,12 @@ static void CL_WeaponThink( void )
             cl_weapon.clipAmmo    += transferred;
             cl_weapon.reserveAmmo -= transferred;
             cl_weapon.reloadAmmoAdded = qtrue;
+
+            /* Notify server of reload ammo transfer so server-side
+             * weapon slots stay in sync (server is authoritative for firing) */
+            CL_AddReliableCommand(
+                va( "rld %d %d", cl_weapon.clipAmmo, cl_weapon.reserveAmmo ),
+                qfalse );
         }
 
         {
@@ -489,7 +547,7 @@ float CL_WeaponCurrentAnimFrame( void )
     /* ADS: override anim selection based on adsFrac */
     if ( cl_weapon.adsFrac > 0.0f ) {
         usercmd_t *cmd = &cl.cmds[ (cl.cmdNumber - 1) & (CMD_BACKUP - 1) ];
-        qboolean wantAds = ( cmd->buttons & BUTTON_WALKING ) ? qtrue : qfalse;
+        qboolean wantAds = ( cmd->buttons & ( BUTTON_ADS | BUTTON_WALKING ) ) ? qtrue : qfalse;
 
         if ( wantAds && cl_weapon.anims[WA_ADS_UP] ) {
             h  = cl_weapon.anims[WA_ADS_UP];
@@ -608,6 +666,65 @@ static void AddViewmodelEnt( qhandle_t hModel,
     re.AddRefEntityToScene( &ent );
 }
 
+/*
+ * CL_WeaponBobSway -- add movement bob and idle sway to the viewmodel.
+ *
+ * Reference: GAME_MP_.c BG_CalculateWeaponPosition_Sway / BG_CalculateWeaponAngles
+ *
+ * Bob: sinusoidal position offset driven by player speed (footstep cycle).
+ * Sway: slow sine-based idle drift scaled by weapon def sway parameters.
+ * Both scale down when ADS is active (adsBobFactor).
+ */
+static void CL_WeaponBobSway( vec3_t origin, vec3_t viewAngles, vec3_t axis[3] )
+{
+    float   speed, bobCycle, bobScale;
+    float   swayScale, swayT;
+    float   adsMult;
+    vec3_t  vel;
+
+    if ( !cl.snap.valid ) return;
+
+    /* Player velocity magnitude (horizontal only) */
+    VectorCopy( cl.snap.ps.velocity, vel );
+    vel[2] = 0;
+    speed = VectorLength( vel );
+
+    /* ADS reduces bob/sway */
+    adsMult = 1.0f - cl_weapon.adsFrac * 0.8f;
+    if ( cl_weapon.def.adsBobFactor > 0.001f )
+        adsMult *= cl_weapon.def.adsBobFactor + ( 1.0f - cl_weapon.def.adsBobFactor ) * ( 1.0f - cl_weapon.adsFrac );
+
+    /* --- Movement bob --- */
+    if ( speed > 10.0f && cl.snap.ps.groundEntityNum != ENTITYNUM_NONE ) {
+        bobCycle = (float)cls.realtime * 0.006f; /* footstep frequency */
+        bobScale = speed * 0.0004f * adsMult;
+        if ( bobScale > 0.012f ) bobScale = 0.012f;
+
+        /* lateral bob */
+        VectorMA( origin, (float)sin( bobCycle ) * bobScale, axis[1], origin );
+        /* vertical bob (2x frequency) */
+        VectorMA( origin, (float)sin( bobCycle * 2.0f ) * bobScale * 0.6f, axis[2], origin );
+    }
+
+    /* --- Idle sway --- */
+    {
+        float swayMax = cl_weapon.def.swayMaxAngle;
+        float swaySpd = cl_weapon.def.swayLerpSpeed;
+        if ( swayMax <= 0.0f ) swayMax = 1.0f;
+        if ( swaySpd <= 0.0f ) swaySpd = 1.0f;
+
+        swayScale = swayMax * adsMult;
+        swayT = (float)cls.realtime * 0.001f * swaySpd;
+
+        /* pitch sway */
+        viewAngles[PITCH] += (float)sin( swayT * 0.7f ) * swayScale *
+            ( cl_weapon.def.swayPitchScale > 0.0f ? cl_weapon.def.swayPitchScale : 0.04f );
+        /* yaw sway */
+        viewAngles[YAW] += (float)sin( swayT * 1.1f ) * swayScale *
+            ( cl_weapon.def.swayYawScale > 0.0f ? cl_weapon.def.swayYawScale : 0.03f );
+    }
+}
+
 void CL_DrawViewModel( stereoFrame_t stereo )
 {
     refdef_t    refdef;
@@ -680,6 +797,9 @@ void CL_DrawViewModel( stereoFrame_t stereo )
     VectorMA( modelOrigin,  ofsF, axis[0], modelOrigin );
     VectorMA( modelOrigin, -ofsR, axis[1], modelOrigin );
     VectorMA( modelOrigin,  ofsU, axis[2], modelOrigin );
+
+    /* --- Weapon bob & sway --- */
+    CL_WeaponBobSway( modelOrigin, viewAngles, axis );
 
     AnglesToAxis( viewAngles, entityAxis );
 
@@ -835,6 +955,9 @@ void CL_WeaponCod1_Init( void )
     Cmd_AddCommand( "weaponinfo", CL_WeaponInfo_f );
 
     Com_Memset( &cl_weapon, 0, sizeof(cl_weapon) );
+    s_pendingWeapon[0]    = '\0';
+    s_pendingClipAmmo     = -1;
+    s_pendingReserveAmmo  = -1;
     s_prevPmType    = -1;
     s_spawnSerial   =  0;
     s_lastThinkTime =  0;
@@ -846,6 +969,9 @@ void CL_WeaponCod1_Shutdown( void )
     Cmd_RemoveCommand( "dropweapon" );
     Cmd_RemoveCommand( "weaponinfo" );
     Com_Memset( &cl_weapon, 0, sizeof(cl_weapon) );
+    s_pendingWeapon[0]    = '\0';
+    s_pendingClipAmmo     = -1;
+    s_pendingReserveAmmo  = -1;
     s_prevPmType  = -1;
     s_lastThinkTime = 0;
 }

@@ -649,6 +649,7 @@ void CL_WeaponCod1_Shutdown( void );
 void CL_GiveWeapon( const char *name );
 void CL_DrawViewModel( stereoFrame_t stereo );
 void CL_WeaponPickup( const char *name, int clipAmmo, int reserveAmmo );
+void CL_WeaponAmmoSync( int clipAmmo, int reserveAmmo );
 void CL_DrawWeaponHud( void );
 const char *CL_WeaponCurrentPlayerAnimTypeName( void );
 int CL_WeaponCurrentPlayerAnimType( void );

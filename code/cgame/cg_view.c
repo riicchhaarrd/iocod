@@ -685,6 +685,27 @@ static int CG_CalcViewValues( void ) {
 		CG_OffsetFirstPersonView();
 	}
 
+#ifdef STANDALONE
+	/* CoD1 lean: camera roll + lateral offset.
+	 * Reference: GAME_MP_.c G_AddLean / AddLeanToPosition (line 26138)
+	 * Offset: 16.0 units lateral, roll scaled to lean fraction.
+	 * Lean fraction is small (max 0.25 standing, 0.5 crouching) so
+	 * normalize to full visual range: roll=40*leanf, offset=64*leanf */
+	if ( ps->leanf != 0.0f ) {
+		vec3_t	right;
+		float	rollDeg, lateralOfs;
+
+		/* Roll: CoD1 uses ~40 degrees at max lean (0.25 frac → 10 deg) */
+		rollDeg = ps->leanf * 40.0f;
+		cg.refdefViewAngles[ROLL] += rollDeg;
+
+		/* Lateral camera offset: 16.0 per unit fraction (ref line 26144) */
+		lateralOfs = ps->leanf * 64.0f;
+		AngleVectors( cg.refdefViewAngles, NULL, right, NULL );
+		VectorMA( cg.refdef.vieworg, lateralOfs, right, cg.refdef.vieworg );
+	}
+#endif
+
 	// position eye relative to origin
 	AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
 

@@ -366,6 +366,13 @@ rescan:
 		                 argc >= 4 ? atoi(Cmd_Argv(3)) : -1 );
 		return qfalse;  // don't pass to cgame
 	}
+	// CoD1: server ammo sync (wa <clip> <reserve>)
+	if ( !strcmp( cmd, "wa" ) ) {
+		extern void CL_WeaponAmmoSync( int clipAmmo, int reserveAmmo );
+		CL_WeaponAmmoSync( argc >= 2 ? atoi(Cmd_Argv(1)) : -1,
+		                   argc >= 3 ? atoi(Cmd_Argv(2)) : -1 );
+		return qfalse;
+	}
 #endif
 
 	// we may want to put a "connect to other server" command here

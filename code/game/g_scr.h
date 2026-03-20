@@ -35,6 +35,10 @@ void G_Scr_PlayerDamage( int clientNum, gentity_t *inflictor, gentity_t *attacke
 void G_Scr_EntitySpawned( gentity_t *ent );
 void G_Scr_EntityFreed( gentity_t *ent );
 
+/* Set arbitrary map spawn vars on the entity's GSC object after spawning.
+   Call after G_CallSpawn() so scripts can access e.g. entity.script_gameobjectname. */
+void G_Scr_SetEntitySpawnVars( gentity_t *ent );
+
 #else /* !STANDALONE */
 
 #define G_Scr_Init()                  ((void)0)
@@ -50,5 +54,6 @@ void G_Scr_EntityFreed( gentity_t *ent );
 #define G_Scr_PlayerDamage(a,b,c,d,e,f,g,h,i,j) ((void)0)
 #define G_Scr_EntitySpawned(e)        ((void)0)
 #define G_Scr_EntityFreed(e)          ((void)0)
+#define G_Scr_SetEntitySpawnVars(e)   ((void)0)
 
 #endif /* STANDALONE */

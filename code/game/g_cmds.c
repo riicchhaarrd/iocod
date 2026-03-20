@@ -582,6 +582,143 @@ static void Cmd_EntityCount_f( gentity_t *ent ) {
 	trap_SendServerCommand( ent-g_entities,
 		va("print \"entities: %i / %i\n\"", level.num_entities, MAX_GENTITIES) );
 }
+
+/*
+=================
+Cmd_WeapNext_f / Cmd_WeapPrev_f / Cmd_WeapSlot_f
+
+CoD1 weapon slot switching.  Cycles through occupied weapon slots
+and sends the new weapon info to the client.
+=================
+*/
+static void G_SendSlotWeapon( gentity_t *ent, int slot ) {
+	gclient_t *cl = ent->client;
+	cl->currentWeaponSlot = slot;
+	trap_SendServerCommand( ent->s.number,
+		va( "weapon %s %d %d",
+			cl->weaponSlots[slot].name,
+			cl->weaponSlots[slot].clipAmmo,
+			cl->weaponSlots[slot].reserveAmmo ) );
+}
+
+static void Cmd_WeapNext_f( gentity_t *ent ) {
+	gclient_t *cl = ent->client;
+	int start, slot;
+	if ( !cl ) return;
+	start = cl->currentWeaponSlot;
+	if ( start < 0 ) start = 0;
+	slot = start;
+	do {
+		slot = ( slot + 1 ) % COD1_WEAPON_SLOT_NUM;
+		if ( cl->weaponSlots[slot].name[0] ) {
+			G_SendSlotWeapon( ent, slot );
+			return;
+		}
+	} while ( slot != start );
+}
+
+static void Cmd_WeapPrev_f( gentity_t *ent ) {
+	gclient_t *cl = ent->client;
+	int start, slot;
+	if ( !cl ) return;
+	start = cl->currentWeaponSlot;
+	if ( start < 0 ) start = 0;
+	slot = start;
+	do {
+		slot = ( slot - 1 + COD1_WEAPON_SLOT_NUM ) % COD1_WEAPON_SLOT_NUM;
+		if ( cl->weaponSlots[slot].name[0] ) {
+			G_SendSlotWeapon( ent, slot );
+			return;
+		}
+	} while ( slot != start );
+}
+
+static void Cmd_WeapSlot_f( gentity_t *ent ) {
+	gclient_t *cl = ent->client;
+	char arg[MAX_TOKEN_CHARS];
+	int  slot;
+	if ( !cl ) return;
+	trap_Argv( 1, arg, sizeof(arg) );
+	slot = atoi( arg );
+	if ( slot < 0 || slot >= COD1_WEAPON_SLOT_NUM ) return;
+	if ( !cl->weaponSlots[slot].name[0] ) return;
+	G_SendSlotWeapon( ent, slot );
+}
+
+/*
+ * Cmd_WeaponSlot_f — CoD1-style "weaponslot <slotname>" command.
+ * Accepts: primary, primaryb, pistol, grenade, smokegrenade
+ * This is the command used in CoD1's default.cfg.
+ */
+static void Cmd_WeaponSlot_f( gentity_t *ent ) {
+	gclient_t *cl = ent->client;
+	char arg[MAX_TOKEN_CHARS];
+	int  slot;
+	if ( !cl ) return;
+	trap_Argv( 1, arg, sizeof(arg) );
+
+	if ( !Q_stricmp( arg, "primary" ) )         slot = 0;
+	else if ( !Q_stricmp( arg, "primaryb" ) )    slot = 1;
+	else if ( !Q_stricmp( arg, "pistol" ) )      slot = 2;
+	else if ( !Q_stricmp( arg, "grenade" ) )     slot = 3;
+	else if ( !Q_stricmp( arg, "smokegrenade" )) slot = 4;
+	else slot = atoi( arg );
+
+	if ( slot < 0 || slot >= COD1_WEAPON_SLOT_NUM ) return;
+	if ( !cl->weaponSlots[slot].name[0] ) return;
+	G_SendSlotWeapon( ent, slot );
+}
+
+/*
+=================
+Cmd_DropWeapon_f
+
+Drop the current weapon as a pickup entity.
+=================
+*/
+static void Cmd_DropWeapon_f( gentity_t *ent ) {
+	G_DropCurrentWeapon( ent );
+}
+
+/*
+=================
+Cmd_ReloadSync_f
+
+Client notifies server that a reload completed.
+Updates server-side weapon slot ammo to match client values.
+Validates against weapon def limits to prevent cheating.
+=================
+*/
+static void Cmd_ReloadSync_f( gentity_t *ent ) {
+	gclient_t *cl = ent->client;
+	char       arg1[MAX_TOKEN_CHARS], arg2[MAX_TOKEN_CHARS];
+	int        slot, newClip, newReserve, totalBefore, totalAfter;
+	weaponDef_t wd;
+
+	if ( !cl ) return;
+	slot = cl->currentWeaponSlot;
+	if ( slot < 0 || slot >= COD1_WEAPON_SLOT_NUM ) return;
+	if ( !cl->weaponSlots[slot].name[0] ) return;
+
+	trap_Argv( 1, arg1, sizeof(arg1) );
+	trap_Argv( 2, arg2, sizeof(arg2) );
+	newClip    = atoi( arg1 );
+	newReserve = atoi( arg2 );
+
+	/* Validate: total ammo should not increase (no ammo duplication) */
+	totalBefore = cl->weaponSlots[slot].clipAmmo + cl->weaponSlots[slot].reserveAmmo;
+	totalAfter  = newClip + newReserve;
+	if ( totalAfter > totalBefore ) return; /* reject: would create ammo */
+
+	/* Validate: clip can't exceed weapon def clipSize */
+	if ( BG_ParseWeaponDef( cl->weaponSlots[slot].name, &wd ) ) {
+		if ( newClip > wd.clipSize ) return; /* reject */
+	}
+	if ( newClip < 0 || newReserve < 0 ) return; /* reject negative */
+
+	cl->weaponSlots[slot].clipAmmo    = newClip;
+	cl->weaponSlots[slot].reserveAmmo = newReserve;
+}
 #endif
 
 /*
@@ -663,9 +800,17 @@ void SetTeam( gentity_t *ent, const char *s ) {
 	} else if ( g_gametype.integer >= GT_TEAM ) {
 		// if running a team game, assign player to one of the teams
 		specState = SPECTATOR_NOT;
-		if ( !Q_stricmp( s, "red" ) || !Q_stricmp( s, "r" ) ) {
+		if ( !Q_stricmp( s, "red" ) || !Q_stricmp( s, "r" )
+#ifdef STANDALONE
+		     || !Q_stricmp( s, "allies" )
+#endif
+		   ) {
 			team = TEAM_RED;
-		} else if ( !Q_stricmp( s, "blue" ) || !Q_stricmp( s, "b" ) ) {
+		} else if ( !Q_stricmp( s, "blue" ) || !Q_stricmp( s, "b" )
+#ifdef STANDALONE
+		            || !Q_stricmp( s, "axis" )
+#endif
+		           ) {
 			team = TEAM_BLUE;
 		} else {
 			// pick the team with the least number of players
@@ -2000,6 +2145,20 @@ void ClientCommand( int clientNum ) {
 		Cmd_GameCommand_f( ent );
 	else if (Q_stricmp (cmd, "setviewpos") == 0)
 		Cmd_SetViewpos_f( ent );
+#ifdef STANDALONE
+	else if (Q_stricmp (cmd, "weapnext") == 0)
+		Cmd_WeapNext_f (ent);
+	else if (Q_stricmp (cmd, "weapprev") == 0)
+		Cmd_WeapPrev_f (ent);
+	else if (Q_stricmp (cmd, "weapslot") == 0)
+		Cmd_WeapSlot_f (ent);
+	else if (Q_stricmp (cmd, "weaponslot") == 0)
+		Cmd_WeaponSlot_f (ent);
+	else if (Q_stricmp (cmd, "dropweapon") == 0)
+		Cmd_DropWeapon_f (ent);
+	else if (Q_stricmp (cmd, "rld") == 0)
+		Cmd_ReloadSync_f (ent);
+#endif
 	else if (Q_stricmp (cmd, "stats") == 0)
 		Cmd_Stats_f( ent );
 	else

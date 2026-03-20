@@ -1206,6 +1206,11 @@ typedef struct playerState_s {
 	float		jumpOriginZ;	// CoD1: expected peak Z of current jump (origin[2] + JUMP_HEIGHT)
 								// used by PM_StepSlideMove to allow step-up during jumps
 	int			jumpTime;		// CoD1: serverTime of last jump, 500ms cooldown before next jump
+	float		leanf;			// CoD1: lean fraction (-1.0=left, 0=center, 1.0=right)
+	int			landTime;		// CoD1: serverTime of last landing, for slowdown
+	float		landSlowdown;	// CoD1: speed multiplier after landing (1.0=normal, 0.5=slowed)
+	int			shellshockTime;	// CoD1: serverTime when shellshock ends (0=none)
+	int			shellshockDuration; // CoD1: total shellshock duration in ms
 #endif
 } playerState_t;
 
@@ -1244,6 +1249,8 @@ typedef struct playerState_s {
 // CoD1 weapon buttons (bits above 15, safe since usercmd_t.buttons is int)
 #define BUTTON_MELEE		65536		// melee attack
 #define BUTTON_ADS			131072		// aim down sights (hold)
+#define BUTTON_LEAN_LEFT	262144		// lean left (Q key)
+#define BUTTON_LEAN_RIGHT	524288		// lean right (E key)
 
 #define	BUTTON_ANY			16384			// any key whatsoever (updated from 2048)
 

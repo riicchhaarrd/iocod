@@ -52,6 +52,10 @@ Adds score to both the client and his team
 ============
 */
 void AddScore( gentity_t *ent, vec3_t origin, int score ) {
+#ifdef STANDALONE
+	/* CoD1: scoring is entirely script-driven — AddScore is a no-op */
+	(void)ent; (void)origin; (void)score;
+#else
 	if ( !ent->client ) {
 		return;
 	}
@@ -66,6 +70,7 @@ void AddScore( gentity_t *ent, vec3_t origin, int score ) {
 	if ( g_gametype.integer == GT_TEAM )
 		level.teamScores[ ent->client->ps.persistant[PERS_TEAM] ] += score;
 	CalculateRanks();
+#endif
 }
 
 /*
@@ -536,6 +541,17 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 
 	self->client->ps.persistant[PERS_KILLED]++;
 
+#ifdef STANDALONE
+	/* CoD1: drop current weapon on death */
+	G_DropWeaponsOnDeath( self );
+
+	/* CoD1: scoring/rewards handled entirely through GSC scripts.
+	   AddScore() is an empty stub in CoD1; no item drops on death. */
+	if (attacker && attacker->client) {
+		attacker->client->lastkilled_client = self->s.number;
+		attacker->client->lastKillTime = level.time;
+	}
+#else
 	if (attacker && attacker->client) {
 		attacker->client->lastkilled_client = self->s.number;
 
@@ -544,7 +560,6 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 		} else {
 			AddScore( attacker, self->r.currentOrigin, 1 );
 
-#ifndef STANDALONE
 			if( meansOfDeath == MOD_GAUNTLET ) {
 
 				// play humiliation on player
@@ -558,7 +573,6 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 				// also play humiliation on target
 				self->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_GAUNTLETREWARD;
 			}
-#endif
 
 			// check for two kills in a short amount of time
 			// if this is close enough to the last kill, give a reward sound
@@ -604,6 +618,7 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 		TossClientCubes( self );
 	}
 #endif
+#endif /* STANDALONE */
 
 	Cmd_Score_f( self );		// show scores
 	// send updated scores to any clients that are following this one,
@@ -642,7 +657,6 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 
 	self->s.weapon = WP_NONE;
 	self->s.powerups = 0;
-	self->r.contents = CONTENTS_CORPSE;
 
 	self->s.angles[0] = 0;
 	self->s.angles[2] = 0;
@@ -652,6 +666,14 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 
 	self->s.loopSound = 0;
 
+	/* CoD1: unlink before mutating bounds/contents, then relink at end */
+	trap_UnlinkEntity( self );
+#ifdef STANDALONE
+	/* CoD1: dead players have no collision contents — body is non-solid */
+	self->r.contents = 0;
+#else
+	self->r.contents = CONTENTS_CORPSE;
+#endif
 	self->r.maxs[2] = DEAD_HEIGHT;
 
 	// don't allow respawn until the death anim is done
@@ -661,6 +683,40 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 	// remove powerups
 	memset( self->client->ps.powerups, 0, sizeof(self->client->ps.powerups) );
 
+#ifdef STANDALONE
+	/* CoD1: no gib system — always use normal death animation path.
+	   Die callback cleared after death (CoD1 corpses are non-interactive). */
+	{
+		static int lastDeath;
+
+		switch ( lastDeath ) {
+		case 0:
+			anim = BOTH_DEATH1;
+			break;
+		case 1:
+			anim = BOTH_DEATH2;
+			break;
+		case 2:
+		default:
+			anim = BOTH_DEATH3;
+			break;
+		}
+
+		self->client->ps.legsAnim =
+			( ( self->client->ps.legsAnim & ANIM_TOGGLEBIT ) ^ ANIM_TOGGLEBIT ) | anim;
+		self->client->ps.torsoAnim =
+			( ( self->client->ps.torsoAnim & ANIM_TOGGLEBIT ) ^ ANIM_TOGGLEBIT ) | anim;
+
+		G_AddEvent( self, EV_DEATH1 + lastDeath, killer );
+
+		/* CoD1: clear die/think — corpse is passive, not gibable */
+		self->die = NULL;
+		self->think = NULL;
+		self->nextthink = 0;
+
+		lastDeath = ( lastDeath + 1 ) % 3;
+	}
+#else
 	// never gib in a nodrop
 	contents = trap_PointContents( self->r.currentOrigin, -1 );
 
@@ -690,9 +746,9 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 			self->health = GIB_HEALTH+1;
 		}
 
-		self->client->ps.legsAnim = 
+		self->client->ps.legsAnim =
 			( ( self->client->ps.legsAnim & ANIM_TOGGLEBIT ) ^ ANIM_TOGGLEBIT ) | anim;
-		self->client->ps.torsoAnim = 
+		self->client->ps.torsoAnim =
 			( ( self->client->ps.torsoAnim & ANIM_TOGGLEBIT ) ^ ANIM_TOGGLEBIT ) | anim;
 
 		G_AddEvent( self, EV_DEATH1 + lastDeath, killer );
@@ -709,6 +765,7 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 		}
 #endif
 	}
+#endif /* STANDALONE */
 
 	trap_LinkEntity (self);
 
@@ -920,9 +977,10 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	}
 
 	// CoD1: compute hit location for player targets
+	// (skip if caller already applied hitloc multiplier, e.g. G_FireBullet)
 	{
 		int hitLoc = 0;
-		if ( client && point ) {
+		if ( client && point && !( dflags & DAMAGE_NO_HITLOC ) ) {
 			hitLoc = G_CalcHitLocFromPoint( point, targ );
 			damage = (int)( (float)damage * g_fHitLocDamageMult[hitLoc] );
 		}
@@ -1299,7 +1357,7 @@ qboolean CanDamage (gentity_t *targ, vec3_t origin) {
 G_RadiusDamage
 ============
 */
-qboolean G_RadiusDamage ( vec3_t origin, gentity_t *attacker, float damage, float radius,
+qboolean G_RadiusDamage ( vec3_t origin, gentity_t *inflictor, gentity_t *attacker, float damage, float minDamage, float radius,
 					 gentity_t *ignore, int mod) {
 	float		points, dist;
 	gentity_t	*ent;
@@ -1346,7 +1404,8 @@ qboolean G_RadiusDamage ( vec3_t origin, gentity_t *attacker, float damage, floa
 			continue;
 		}
 
-		points = damage * ( 1.0 - dist / radius );
+		/* CoD1 falloff: linear from maxDamage at centre to minDamage at edge */
+		points = ( 1.0f - dist / radius ) * ( damage - minDamage ) + minDamage;
 
 		if( CanDamage (ent, origin) ) {
 			if( LogAccuracyHit( ent, attacker ) ) {
@@ -1356,7 +1415,7 @@ qboolean G_RadiusDamage ( vec3_t origin, gentity_t *attacker, float damage, floa
 			// push the center of mass higher than the origin so players
 			// get knocked into the air more
 			dir[2] += 24;
-			G_Damage (ent, NULL, attacker, dir, origin, (int)points, DAMAGE_RADIUS, mod);
+			G_Damage (ent, inflictor, attacker, dir, origin, (int)points, DAMAGE_RADIUS, mod);
 		}
 	}
 

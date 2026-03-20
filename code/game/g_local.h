@@ -25,6 +25,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "bg_public.h"
 #include "g_public.h"
+#ifdef STANDALONE
+#include "../qcommon/bg_weapon_cod1.h"
+#endif
 
 //==================================================================
 
@@ -322,6 +325,7 @@ struct gclient_s {
 #ifdef STANDALONE
 	// CoD1 weapon system
 	int		nextMeleeTime;		/* earliest level.time for next melee */
+	int		nextFireTime;		/* earliest level.time for next bullet */
 
 #define COD1_WEAPON_SLOT_NUM 7
 	// Server-side weapon slots (CoD1: primary, primaryb, pistol, grenade, smokegrenade)
@@ -332,6 +336,10 @@ struct gclient_s {
 	} weaponSlots[COD1_WEAPON_SLOT_NUM];
 	int		currentWeaponSlot;	// index into weaponSlots, -1 = none
 	char	spawnWeapon[64];	// weapon to auto-switch on spawn
+
+	// Cached weapon def to avoid re-parsing every shot
+	char		cachedWeaponName[64];
+	weaponDef_t	cachedWeaponDef;
 #endif
 
 	char		*areabits;
@@ -512,7 +520,7 @@ const char *BuildShaderStateConfig( void );
 //
 qboolean CanDamage (gentity_t *targ, vec3_t origin);
 void G_Damage (gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_t dir, vec3_t point, int damage, int dflags, int mod);
-qboolean G_RadiusDamage (vec3_t origin, gentity_t *attacker, float damage, float radius, gentity_t *ignore, int mod);
+qboolean G_RadiusDamage (vec3_t origin, gentity_t *inflictor, gentity_t *attacker, float damage, float minDamage, float radius, gentity_t *ignore, int mod);
 int G_InvulnerabilityEffect( gentity_t *targ, vec3_t dir, vec3_t point, vec3_t impactpoint, vec3_t bouncedir );
 void body_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int damage, int meansOfDeath );
 void TossClientItems( gentity_t *self );
@@ -529,11 +537,13 @@ void TossClientCubes( gentity_t *self );
 #ifdef MISSIONPACK
 #define DAMAGE_NO_TEAM_PROTECTION	0x00000010  // armor, shields, invulnerability, and godmode have no effect
 #endif
+#define DAMAGE_NO_HITLOC			0x00000020  // skip hit location multiplier (caller already applied it)
 
 //
 // g_missile.c
 //
 void G_RunMissile( gentity_t *ent );
+void G_ExplodeMissile( gentity_t *ent );
 
 gentity_t *fire_plasma (gentity_t *self, vec3_t start, vec3_t aimdir);
 gentity_t *fire_grenade (gentity_t *self, vec3_t start, vec3_t aimdir);
@@ -590,7 +600,11 @@ void Weapon_HookThink (gentity_t *ent);
 // g_weapon_cod1.c
 //
 void SP_weapon_cod1( gentity_t *ent );
+void Touch_WeaponCod1( gentity_t *ent, gentity_t *other, trace_t *trace );
 void G_MeleeDamage( gentity_t *attacker );
+void G_FireWeapon( gentity_t *attacker );
+void G_DropCurrentWeapon( gentity_t *ent );
+void G_DropWeaponsOnDeath( gentity_t *ent );
 #endif
 
 //

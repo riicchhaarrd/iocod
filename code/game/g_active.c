@@ -595,7 +595,9 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			break;
 
 		case EV_FIRE_WEAPON:
+#ifndef STANDALONE
 			FireWeapon( ent );
+#endif
 			break;
 
 		case EV_USE_ITEM1:		// teleporter
@@ -1033,6 +1035,12 @@ void ClientThink_real( gentity_t *ent ) {
 	client->latched_buttons |= client->buttons & ~client->oldbuttons;
 
 #ifdef STANDALONE
+	// CoD1 weapon fire: server-side bullet/projectile when attack held
+	if ( (client->buttons & BUTTON_ATTACK) &&
+	     client->ps.pm_type == PM_NORMAL ) {
+		G_FireWeapon( ent );
+	}
+
 	// CoD1 melee: trigger on button-press edge when alive
 	if ( (client->latched_buttons & BUTTON_MELEE) &&
 	     client->ps.pm_type == PM_NORMAL &&
@@ -1041,24 +1049,79 @@ void ClientThink_real( gentity_t *ent ) {
 		client->nextMeleeTime = level.time + 800;
 		client->latched_buttons &= ~BUTTON_MELEE;
 	}
+
+	/* CoD1 activate: +activate key triggers nearest usable entity.
+	 * Reference: GAME_MP_.c G_GetActivateEnt (lines 35201-35300)
+	 * Uses proximity box (128 units) + view angle check (dot >= 0.76),
+	 * NOT a line-of-sight raycast. */
+	if ( (client->latched_buttons & BUTTON_USE_HOLDABLE) &&
+	     client->ps.pm_type == PM_NORMAL ) {
+		vec3_t		forward, eyeOrg;
+		gentity_t	*best = NULL;
+		float		bestDist = 128.0f;
+		int			i;
+
+		AngleVectors( client->ps.viewangles, forward, NULL, NULL );
+		VectorCopy( client->ps.origin, eyeOrg );
+		eyeOrg[2] += client->ps.viewheight;
+
+		/* Find nearest usable entity within 128 units + facing check */
+		for ( i = 0; i < level.num_entities; i++ ) {
+			gentity_t *check = &g_entities[i];
+			vec3_t     delta, dir;
+			float      dist, dot;
+
+			if ( !check->inuse || !check->use ) continue;
+			if ( check == ent ) continue;
+
+			VectorSubtract( check->r.currentOrigin, eyeOrg, delta );
+			dist = VectorLength( delta );
+			if ( dist > 128.0f || dist < 1.0f ) continue;
+
+			VectorCopy( delta, dir );
+			VectorNormalize( dir );
+			dot = DotProduct( forward, dir );
+			if ( dot < 0.76f ) continue; /* must be roughly facing it */
+
+			if ( dist < bestDist ) {
+				bestDist = dist;
+				best = check;
+			}
+		}
+
+		if ( best ) {
+			best->use( best, ent, ent );
+		}
+		client->latched_buttons &= ~BUTTON_USE_HOLDABLE;
+	}
 #endif
 
 	// check for respawning
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) {
+#ifdef STANDALONE
+		/* CoD1: respawn is script-driven via self.spawn() in gametype GSC.
+		   Only use g_forcerespawn as a fallback safety net when no script runs. */
+		if ( g_forcerespawn.integer > 0 &&
+		     level.time > client->respawnTime &&
+		     ( level.time - client->respawnTime ) > g_forcerespawn.integer * 1000 ) {
+			ClientRespawn( ent );
+		}
+#else
 		// wait for the attack button to be pressed
 		if ( level.time > client->respawnTime ) {
 			// forcerespawn is to prevent users from waiting out powerups
-			if ( g_forcerespawn.integer > 0 && 
+			if ( g_forcerespawn.integer > 0 &&
 				( level.time - client->respawnTime ) > g_forcerespawn.integer * 1000 ) {
 				ClientRespawn( ent );
 				return;
 			}
-		
+
 			// pressing attack or use is the normal respawn method
 			if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) {
 				ClientRespawn( ent );
 			}
 		}
+#endif
 		return;
 	}
 

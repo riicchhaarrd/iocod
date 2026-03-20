@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 //
 
 #include "g_local.h"
+#include "g_scr.h"
 
 qboolean	G_SpawnString( const char *key, const char *defaultString, char **out ) {
 	int		i;
@@ -183,12 +184,9 @@ void SP_team_neutralobelisk( gentity_t *ent );
 #endif
 void SP_item_botroam( gentity_t *ent ) { }
 
-// CoD compatibility
+// CoD compatibility: trigger_damage hurts touching players (like trigger_hurt)
 void SP_cod_trigger_damage( gentity_t *ent ) {
-	if (!ent->health) {
-		ent->health = 1;
-	}
-	SP_func_button(ent);
+	SP_trigger_hurt(ent);
 }
 
 spawn_t	spawns[] = {
@@ -561,6 +559,11 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	// if we didn't get a classname, don't bother spawning anything
 	if ( !G_CallSpawn( ent ) ) {
 		G_FreeEntity( ent );
+	} else {
+#ifdef STANDALONE
+		/* Expose arbitrary spawn vars (e.g. script_gameobjectname) to GSC scripts */
+		G_Scr_SetEntitySpawnVars( ent );
+#endif
 	}
 }
 
